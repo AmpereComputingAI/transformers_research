@@ -237,8 +237,6 @@ class BatchEncoding(UserDict):
             n_sequences = encoding[0].n_sequences
 
         self._n_sequences = n_sequences
-        print(tracer)
-        sdf
 
         self.convert_to_tensors(tracer=tracer, tensor_type=tensor_type, prepend_batch_axis=prepend_batch_axis)
 
@@ -705,6 +703,8 @@ class BatchEncoding(UserDict):
                 Whether or not to add the batch dimension during the conversion.
         """
 
+        print(tracer)
+        sfd
         if tensor_type is None:
             return self
         idx = tracer.add_condition("not (tensor_type is None)", {"tensor_type": tensor_type})
