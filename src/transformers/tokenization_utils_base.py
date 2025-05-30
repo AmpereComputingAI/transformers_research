@@ -729,11 +729,11 @@ class BatchEncoding(UserDict):
 
             def as_tensor(value, dtype=None):
                 if isinstance(value, list) and isinstance(value[0], np.ndarray):
-                    tracer.add_condition("isinstance(value, list) and isinstance(value[0], np.ndarray)",
+                    idxx = tracer.add_condition("isinstance(value, list) and isinstance(value[0], np.ndarray)",
                                          {"value": value})
                     x = torch.from_numpy(np.array(value))
-                    tracer.add_op("torch.from_numpy", {"ndarray": np.array(value)}, {"output": x})
-                    return x
+                    #tracer.add_op("torch.from_numpy", {"ndarray": np.array(value)}, {"output": x})
+                    return (x, tracer.reset_condition_stack(idxx))[0]
                 x = torch.tensor(value)
                 #tracer.add_op("torch.tensor", {"data": value}, {"output": x})
                 return x
