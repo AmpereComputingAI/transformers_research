@@ -919,6 +919,7 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
     @add_end_docstrings(ENCODE_KWARGS_DOCSTRING, ENCODE_PLUS_ADDITIONAL_KWARGS_DOCSTRING)
     def _batch_prepare_for_model(
         self,
+        tracer,
         batch_ids_pairs: list[Union[PreTokenizedInputPair, tuple[list[int], None]]],
         add_special_tokens: bool = True,
         padding_strategy: PaddingStrategy = PaddingStrategy.DO_NOT_PAD,
@@ -946,8 +947,11 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
         """
 
         batch_outputs = {}
+        idx = tracer.add_loop("for first_ids, second_ids in batch_ids_pairs", {"batch_ids_pairs": batch_ids_pairs})
         for first_ids, second_ids in batch_ids_pairs:
+            tracer.loop_stack[idx].iter()
             outputs = self.prepare_for_model(
+                tracer,
                 first_ids,
                 second_ids,
                 add_special_tokens=add_special_tokens,
@@ -973,7 +977,10 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
                     batch_outputs[key] = []
                 batch_outputs[key].append(value)
 
+        tracer.reset_loop_stack(idx)
+
         batch_outputs = self.pad(
+            tracer,
             batch_outputs,
             padding=padding_strategy.value,
             max_length=max_length,
@@ -982,7 +989,7 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
             return_attention_mask=return_attention_mask,
         )
 
-        batch_outputs = BatchEncoding(batch_outputs, tensor_type=return_tensors)
+        batch_outputs = BatchEncoding(tracer, batch_outputs, tensor_type=return_tensors)
 
         return batch_outputs
 

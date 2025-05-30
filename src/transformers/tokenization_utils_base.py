@@ -219,6 +219,7 @@ class BatchEncoding(UserDict):
 
     def __init__(
         self,
+        tracer,
         data: Optional[Dict[str, Any]] = None,
         encoding: Optional[Union[EncodingFast, Sequence[EncodingFast]]] = None,
         tensor_type: Union[None, str, TensorType] = None,
@@ -237,7 +238,7 @@ class BatchEncoding(UserDict):
 
         self._n_sequences = n_sequences
 
-        self.convert_to_tensors(tensor_type=tensor_type, prepend_batch_axis=prepend_batch_axis)
+        self.convert_to_tensors(tracer, tensor_type=tensor_type, prepend_batch_axis=prepend_batch_axis)
 
     @property
     def n_sequences(self) -> Optional[int]:
@@ -687,7 +688,7 @@ class BatchEncoding(UserDict):
         return self._encodings[batch_index].char_to_word(char_index, sequence_index)
 
     def convert_to_tensors(
-        self, tensor_type: Optional[Union[str, TensorType]] = None, prepend_batch_axis: bool = False
+        self, tracer, tensor_type: Optional[Union[str, TensorType]] = None, prepend_batch_axis: bool = False
     ):
         """
         Convert the inner content to tensors.
@@ -699,8 +700,10 @@ class BatchEncoding(UserDict):
             prepend_batch_axis (`int`, *optional*, defaults to `False`):
                 Whether or not to add the batch dimension during the conversion.
         """
+
         if tensor_type is None:
             return self
+        idx = tracer.add_condition("not (tensor_type is None)", {"tensor_type": tensor_type})
 
         # Convert to TensorType
         if not isinstance(tensor_type, TensorType):
@@ -708,6 +711,7 @@ class BatchEncoding(UserDict):
 
         # Get a function reference for the correct framework
         if tensor_type == TensorType.TENSORFLOW:
+            tracer.vomit()
             if not is_tf_available():
                 raise ImportError(
                     "Unable to convert output to TensorFlow tensors format, TensorFlow is not installed."
@@ -720,15 +724,22 @@ class BatchEncoding(UserDict):
             if not is_torch_available():
                 raise ImportError("Unable to convert output to PyTorch tensors format, PyTorch is not installed.")
             import torch
-
+            tracer.add_condition("tensor_type == TensorType.PYTORCH", {"tensor_type": tensor_type})
             is_tensor = torch.is_tensor
 
             def as_tensor(value, dtype=None):
                 if isinstance(value, list) and isinstance(value[0], np.ndarray):
-                    return torch.from_numpy(np.array(value))
-                return torch.tensor(value)
+                    tracer.add_condition("isinstance(value, list) and isinstance(value[0], np.ndarray)",
+                                         {"value": value})
+                    x = torch.from_numpy(np.array(value))
+                    tracer.add_op("torch.from_numpy", {"ndarray": np.array(value)}, {"output": x})
+                    return x
+                x = torch.tensor(value)
+                tracer.add_op("torch.tensor", {"data": value}, {"output": x})
+                return x
 
         elif tensor_type == TensorType.JAX:
+            tracer.vomit()
             if not is_flax_available():
                 raise ImportError("Unable to convert output to JAX tensors format, JAX is not installed.")
             import jax.numpy as jnp  # noqa: F811
@@ -737,6 +748,7 @@ class BatchEncoding(UserDict):
             is_tensor = is_jax_tensor
 
         elif tensor_type == TensorType.MLX:
+            tracer.vomit()
             if not is_mlx_available():
                 raise ImportError("Unable to convert output to MLX tensors format, MLX is not installed.")
             import mlx.core as mx
@@ -746,7 +758,7 @@ class BatchEncoding(UserDict):
             def is_tensor(obj):
                 return isinstance(obj, mx.array)
         else:
-
+            tracer.vomit()
             def as_tensor(value, dtype=None):
                 if isinstance(value, (list, tuple)) and isinstance(value[0], (list, tuple, np.ndarray)):
                     value_lens = [len(val) for val in value]
@@ -787,6 +799,7 @@ class BatchEncoding(UserDict):
                     " expected)."
                 ) from e
 
+        tracer.reset_condition_stack(idx)
         return self
 
     def to(self, device: Union[str, "torch.device"], *, non_blocking: bool = False) -> "BatchEncoding":
@@ -2665,7 +2678,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
         raise NotImplementedError
 
     def _get_padding_truncation_strategies(
-        self, tracer, padding=False, truncation=None, max_length=None, pad_to_multiple_of=None, verbose=True, **kwargs
+        self, padding=False, truncation=None, max_length=None, pad_to_multiple_of=None, verbose=True, **kwargs
     ):
         """
         Find the correct padding/truncation strategy
@@ -3204,6 +3217,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
 
     def pad(
         self,
+        tracer,
         encoded_inputs: Union[
             BatchEncoding,
             List[BatchEncoding],
@@ -3307,6 +3321,8 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
             if return_attention_mask:
                 encoded_inputs["attention_mask"] = []
             return encoded_inputs
+        idx = tracer.add_condition("not(required_input is None or (isinstance(required_input, Sized) and len(required_input) == 0))",
+                             {"required_input": required_input})
 
         # If we have PyTorch/TF/NumPy tensors/arrays as inputs, we cast them as python objects
         # and rebuild them afterwards if no return_tensors is specified
@@ -3343,6 +3359,8 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
 
         required_input = encoded_inputs[self.model_input_names[0]]
         if required_input and not isinstance(required_input[0], (list, tuple)):
+            tracer.add_condition("required_input and not isinstance(required_input[0], (list, tuple))",
+                                 {"required_input": required_input})
             encoded_inputs = self._pad(
                 encoded_inputs,
                 max_length=max_length,
@@ -3351,7 +3369,9 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
                 padding_side=padding_side,
                 return_attention_mask=return_attention_mask,
             )
-            return BatchEncoding(encoded_inputs, tensor_type=return_tensors)
+            return (BatchEncoding(tracer, encoded_inputs, tensor_type=return_tensors), tracer.reset_condition_stack(idx))[0]
+        tracer.add_condition("not(required_input and not isinstance(required_input[0], (list, tuple)))",
+                                   {"required_input": required_input})
 
         batch_size = len(required_input)
         assert all(len(v) == batch_size for v in encoded_inputs.values()), (
@@ -3379,7 +3399,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
                     batch_outputs[key] = []
                 batch_outputs[key].append(value)
 
-        return BatchEncoding(batch_outputs, tensor_type=return_tensors)
+        return (BatchEncoding(tracer, batch_outputs, tensor_type=return_tensors), tracer.reset_condition_stack(idx))[0]
 
     def create_token_type_ids_from_sequences(
         self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
@@ -3424,6 +3444,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
     @add_end_docstrings(ENCODE_KWARGS_DOCSTRING, ENCODE_PLUS_ADDITIONAL_KWARGS_DOCSTRING)
     def prepare_for_model(
         self,
+        tracer,
         ids: List[int],
         pair_ids: Optional[List[int]] = None,
         add_special_tokens: bool = True,
@@ -3541,7 +3562,11 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
 
         # Padding
         if padding_strategy != PaddingStrategy.DO_NOT_PAD or return_attention_mask:
+            idx = tracer.add_condition("padding_strategy != PaddingStrategy.DO_NOT_PAD or return_attention_mask",
+                                       {"padding_strategy": padding_strategy,
+                                        "return_attention_mask": return_attention_mask})
             encoded_inputs = self.pad(
+                tracer,
                 encoded_inputs,
                 max_length=max_length,
                 padding=padding_strategy.value,
@@ -3549,12 +3574,13 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
                 padding_side=padding_side,
                 return_attention_mask=return_attention_mask,
             )
+            tracer.reset_condition_stack(idx)
 
         if return_length:
             encoded_inputs["length"] = len(encoded_inputs["input_ids"])
 
         batch_outputs = BatchEncoding(
-            encoded_inputs, tensor_type=return_tensors, prepend_batch_axis=prepend_batch_axis
+            tracer, encoded_inputs, tensor_type=return_tensors, prepend_batch_axis=prepend_batch_axis
         )
 
         return batch_outputs
