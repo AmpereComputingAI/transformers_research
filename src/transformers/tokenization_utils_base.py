@@ -240,6 +240,10 @@ class BatchEncoding(UserDict):
 
         self.convert_to_tensors(tracer=tracer, tensor_type=tensor_type, prepend_batch_axis=prepend_batch_axis)
 
+        print("yo")
+        print(tracer)
+        print(self)
+
         tracer.debug(self)
 
     @property
@@ -810,7 +814,6 @@ class BatchEncoding(UserDict):
         tracer.reset_condition_stack(idx)
         print(tracer)
         print(self)
-        sfd
         return self
 
     def to(self, device: Union[str, "torch.device"], *, non_blocking: bool = False) -> "BatchEncoding":
