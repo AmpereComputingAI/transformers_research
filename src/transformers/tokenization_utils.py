@@ -916,6 +916,8 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
             split_special_tokens=split_special_tokens,
         )
 
+        tracer.debug(batch_outputs)
+
         return BatchEncoding(batch_outputs)
 
     @add_end_docstrings(ENCODE_KWARGS_DOCSTRING, ENCODE_PLUS_ADDITIONAL_KWARGS_DOCSTRING)
@@ -994,6 +996,8 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
         )
 
         batch_outputs = BatchEncoding(tracer, batch_outputs, tensor_type=return_tensors)
+
+        tracer.debug(batch_outputs)
 
         return batch_outputs
 
