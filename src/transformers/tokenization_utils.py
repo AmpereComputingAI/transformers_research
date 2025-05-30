@@ -854,7 +854,7 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
             if isinstance(text, str):
                 idx = tracer.add_condition("isinstance(text, str)", {"text": text})
                 tokens = self.tokenize(tracer, text, **kwargs)
-                return (self.convert_tokens_to_ids(tracer, tokens), tracer.reset_condition_stack(idx))[0]
+                return (self.convert_tokens_to_ids(tokens), tracer.reset_condition_stack(idx))[0]
             elif isinstance(text, (list, tuple)) and len(text) > 0 and isinstance(text[0], str):
                 idx = tracer.add_condition(
                     "not isinstance(text, str) and isinstance(text, (list, tuple)) and len(text) > 0 and"
@@ -864,9 +864,9 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
                     tokens = list(
                         itertools.chain(*(self.tokenize(t, is_split_into_words=True, **kwargs) for t in text))
                     )
-                    return (self.convert_tokens_to_ids(tracer, tokens), tracer.reset_condition_stack(idx))[0]
+                    return (self.convert_tokens_to_ids(tokens), tracer.reset_condition_stack(idx))[0]
                 else:
-                    return (self.convert_tokens_to_ids(tracer, text), tracer.reset_condition_stack(idx))[0]
+                    return (self.convert_tokens_to_ids(text), tracer.reset_condition_stack(idx))[0]
             elif isinstance(text, (list, tuple)) and len(text) > 0 and isinstance(text[0], int):
                 return text
             else:
