@@ -2884,9 +2884,6 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
         # Leave back tokenizer in input mode
         self._switch_to_input_mode()
 
-        tracer.debug(encodings)
-        tracer.debug(target_encodings)
-
         if text_target is None:
             return encodings
         elif text is None:
