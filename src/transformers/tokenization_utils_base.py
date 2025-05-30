@@ -238,12 +238,8 @@ class BatchEncoding(UserDict):
 
         self._n_sequences = n_sequences
 
-        self.convert_to_tensors(tracer, tensor_type=tensor_type, prepend_batch_axis=prepend_batch_axis)
+        self.convert_to_tensors(tracer=tracer, tensor_type=tensor_type, prepend_batch_axis=prepend_batch_axis)
 
-        print("yo")
-        print(tracer)
-        print(self)
-        print("yox")
         tracer.debug(self)
 
     @property
@@ -694,7 +690,7 @@ class BatchEncoding(UserDict):
         return self._encodings[batch_index].char_to_word(char_index, sequence_index)
 
     def convert_to_tensors(
-        self, tracer, tensor_type: Optional[Union[str, TensorType]] = None, prepend_batch_axis: bool = False
+            self, tracer, tensor_type: Optional[Union[str, TensorType]] = None, prepend_batch_axis: bool = False
     ):
         """
         Convert the inner content to tensors.
