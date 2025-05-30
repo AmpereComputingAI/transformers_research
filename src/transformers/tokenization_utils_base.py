@@ -240,8 +240,10 @@ class BatchEncoding(UserDict):
 
         self.convert_to_tensors(tracer, tensor_type=tensor_type, prepend_batch_axis=prepend_batch_axis)
 
+        print("yo")
         print(tracer)
         print(self)
+        print("yox")
         tracer.debug(self)
 
     @property
