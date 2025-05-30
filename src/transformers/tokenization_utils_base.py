@@ -240,6 +240,8 @@ class BatchEncoding(UserDict):
 
         self.convert_to_tensors(tracer, tensor_type=tensor_type, prepend_batch_axis=prepend_batch_axis)
 
+        tracer.debug(self)
+
     @property
     def n_sequences(self) -> Optional[int]:
         """
@@ -2877,6 +2879,9 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
             tracer.reset_condition_stack(idx)
         # Leave back tokenizer in input mode
         self._switch_to_input_mode()
+
+        tracer.debug(encodings)
+        tracer.debug(target_encodings)
 
         if text_target is None:
             return encodings
