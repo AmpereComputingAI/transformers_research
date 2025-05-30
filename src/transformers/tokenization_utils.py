@@ -990,8 +990,6 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
         )
 
         batch_outputs = BatchEncoding(tracer, batch_outputs, tensor_type=return_tensors)
-        print(batch_outputs)
-        sdf
 
         return batch_outputs
 

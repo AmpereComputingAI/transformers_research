@@ -239,6 +239,8 @@ class BatchEncoding(UserDict):
         self._n_sequences = n_sequences
 
         self.convert_to_tensors(tracer, tensor_type=tensor_type, prepend_batch_axis=prepend_batch_axis)
+        print(self)
+        sf
 
     @property
     def n_sequences(self) -> Optional[int]:
