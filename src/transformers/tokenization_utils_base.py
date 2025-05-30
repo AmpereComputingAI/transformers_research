@@ -280,6 +280,7 @@ class BatchEncoding(UserDict):
             )
 
     def __getattr__(self, item: str):
+        print(self.data)
         try:
             return self.data[item]
         except KeyError:
