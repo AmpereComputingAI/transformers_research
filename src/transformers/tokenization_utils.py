@@ -874,6 +874,8 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
                     "Input is not valid. Should be a string, a list/tuple of strings or a list/tuple of integers."
                 )
 
+        tracer.debug()
+
         if return_offsets_mapping:
             raise NotImplementedError(
                 "return_offset_mapping is not available when using Python tokenizers. "
@@ -945,6 +947,8 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
         Args:
             batch_ids_pairs: list of tokenized input ids or input ids pairs
         """
+
+        tracer.debug()
 
         batch_outputs = {}
         idx = tracer.add_loop("for first_ids, second_ids in batch_ids_pairs", {"batch_ids_pairs": batch_ids_pairs})

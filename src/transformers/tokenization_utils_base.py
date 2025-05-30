@@ -2858,6 +2858,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
             "split_special_tokens": kwargs.pop("split_special_tokens", self.split_special_tokens),
             "verbose": verbose,
         }
+        tracer.debug()
         all_kwargs.update(kwargs)
         if text is None and text_target is None:
             raise ValueError("You need to specify either `text` or `text_target`.")
@@ -2929,6 +2930,8 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
                     return False
             else:
                 return False
+
+        tracer.debug()
 
         if not _is_valid_text_input(text):
             raise ValueError(
@@ -3154,6 +3157,8 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
                 string/string-sequences/int-sequences or a list of pair of string/string-sequences/int-sequence (see
                 details in `encode_plus`).
         """
+
+        tracer.debug()
 
         # Backward compatibility for 'truncation_strategy', 'pad_to_max_length'
         padding_strategy, truncation_strategy, max_length, kwargs = self._get_padding_truncation_strategies(
