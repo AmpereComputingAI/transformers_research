@@ -777,8 +777,9 @@ class BatchEncoding(UserDict):
                 if prepend_batch_axis:
                     value = [value]
 
-                tracer.add_op("torch.is_tensor", {"obj": value})
-                if not is_tensor(value):
+                x = is_tensor(value)
+                tracer.add_op("torch.is_tensor", {"obj": value}, {"output": x})
+                if not x:
                     idxx = tracer.add_condition("not torch.is_tensor(value)", {"value": value})
                     tensor = as_tensor(value)
 
