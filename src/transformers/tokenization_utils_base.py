@@ -770,12 +770,16 @@ class BatchEncoding(UserDict):
             is_tensor = is_numpy_array
 
         # Do the tensor conversion in batch
+        loop_idx = tracer.add_loop("for key, value in self.items()", {"self": self})
         for key, value in self.items():
+            tracer.loop_stack[loop_idx].iteration()
             try:
                 if prepend_batch_axis:
                     value = [value]
 
+                tracer.add_op("torch.is_tensor", {"obj": value})
                 if not is_tensor(value):
+                    idxx = tracer.add_condition("not torch.is_tensor(value)", {"value": value})
                     tensor = as_tensor(value)
 
                     # Removing this for now in favor of controlling the shape with `prepend_batch_axis`
@@ -786,6 +790,7 @@ class BatchEncoding(UserDict):
                     #     tensor = tensor[None, :]
 
                     self[key] = tensor
+                    tracer.reset_condition_stack(idxx)
             except Exception as e:
                 if key == "overflowing_tokens":
                     raise ValueError(
@@ -798,10 +803,8 @@ class BatchEncoding(UserDict):
                     f" features (`{key}` in this case) have excessive nesting (inputs type `list` where type `int` is"
                     " expected)."
                 ) from e
-
+        tracer.reset_loop_stack(loop_idx)
         tracer.reset_condition_stack(idx)
-        print(self)
-        sf
         return self
 
     def to(self, device: Union[str, "torch.device"], *, non_blocking: bool = False) -> "BatchEncoding":
