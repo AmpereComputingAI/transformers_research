@@ -918,7 +918,7 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
 
         tracer.debug(batch_outputs)
 
-        return BatchEncoding(batch_outputs)
+        return BatchEncoding(tracer, batch_outputs)
 
     @add_end_docstrings(ENCODE_KWARGS_DOCSTRING, ENCODE_PLUS_ADDITIONAL_KWARGS_DOCSTRING)
     def _batch_prepare_for_model(
