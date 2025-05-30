@@ -808,8 +808,6 @@ class BatchEncoding(UserDict):
                 ) from e
         tracer.reset_loop_stack(loop_idx)
         tracer.reset_condition_stack(idx)
-        print(tracer)
-        print(self)
         return self
 
     def to(self, device: Union[str, "torch.device"], *, non_blocking: bool = False) -> "BatchEncoding":
