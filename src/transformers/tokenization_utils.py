@@ -822,6 +822,7 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
 
     def _batch_encode_plus(
         self,
+        tracer,
         batch_text_or_text_pairs: Union[
             list[TextInput],
             list[TextInputPair],
@@ -851,16 +852,21 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
     ) -> BatchEncoding:
         def get_input_ids(text):
             if isinstance(text, str):
-                tokens = self.tokenize(text, **kwargs)
-                return self.convert_tokens_to_ids(tokens)
+                idx = tracer.add_condition("isinstance(text, str)", {"text": text})
+                tokens = self.tokenize(tracer, text, **kwargs)
+                return (self.convert_tokens_to_ids(tracer, tokens), tracer.reset_condition_stack(idx))[0]
             elif isinstance(text, (list, tuple)) and len(text) > 0 and isinstance(text[0], str):
+                idx = tracer.add_condition(
+                    "not isinstance(text, str) and isinstance(text, (list, tuple)) and len(text) > 0 and"
+                    " isinstance(text[0], str)", {"text": text})
                 if is_split_into_words:
+                    tracer.add_condition("is_split_into_words", {"is_split_into_words": is_split_into_words})
                     tokens = list(
                         itertools.chain(*(self.tokenize(t, is_split_into_words=True, **kwargs) for t in text))
                     )
-                    return self.convert_tokens_to_ids(tokens)
+                    return (self.convert_tokens_to_ids(tracer, tokens), tracer.reset_condition_stack(idx))[0]
                 else:
-                    return self.convert_tokens_to_ids(text)
+                    return (self.convert_tokens_to_ids(tracer, text), tracer.reset_condition_stack(idx))[0]
             elif isinstance(text, (list, tuple)) and len(text) > 0 and isinstance(text[0], int):
                 return text
             else:
@@ -889,6 +895,7 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
             input_ids.append((first_ids, second_ids))
 
         batch_outputs = self._batch_prepare_for_model(
+            tracer,
             input_ids,
             add_special_tokens=add_special_tokens,
             padding_strategy=padding_strategy,

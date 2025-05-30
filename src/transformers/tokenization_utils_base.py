@@ -3147,7 +3147,6 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
             **kwargs,
         )
 
-        print(self._batch_encode_plus)
         return self._batch_encode_plus(
             tracer,
             batch_text_or_text_pairs=batch_text_or_text_pairs,
@@ -3173,6 +3172,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
 
     def _batch_encode_plus(
         self,
+        tracer,
         batch_text_or_text_pairs: Union[
             List[TextInput],
             List[TextInputPair],
