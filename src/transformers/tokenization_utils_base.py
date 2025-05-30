@@ -735,7 +735,7 @@ class BatchEncoding(UserDict):
                     tracer.add_op("torch.from_numpy", {"ndarray": np.array(value)}, {"output": x})
                     return x
                 x = torch.tensor(value)
-                tracer.add_op("torch.tensor", {"data": value}, {"output": x})
+                #tracer.add_op("torch.tensor", {"data": value}, {"output": x})
                 return x
 
         elif tensor_type == TensorType.JAX:
