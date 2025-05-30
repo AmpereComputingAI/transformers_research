@@ -2665,7 +2665,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
         raise NotImplementedError
 
     def _get_padding_truncation_strategies(
-        self, padding=False, truncation=None, max_length=None, pad_to_multiple_of=None, verbose=True, **kwargs
+        self, tracer, padding=False, truncation=None, max_length=None, pad_to_multiple_of=None, verbose=True, **kwargs
     ):
         """
         Find the correct padding/truncation strategy
@@ -2929,6 +2929,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
             is_batched = isinstance(text, (list, tuple))
 
         if is_batched:
+            idx = tracer.add_condition("is_batched", {"is_batched": is_batched})
             if isinstance(text_pair, str):
                 raise TypeError(
                     "when tokenizing batches of text, `text_pair` must be a list or tuple with the same length as"
@@ -2940,7 +2941,8 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
                     f" {len(text_pair)}."
                 )
             batch_text_or_text_pairs = list(zip(text, text_pair)) if text_pair is not None else text
-            return self.batch_encode_plus(
+            return (self.batch_encode_plus(
+                tracer,
                 batch_text_or_text_pairs=batch_text_or_text_pairs,
                 add_special_tokens=add_special_tokens,
                 padding=padding,
@@ -2960,9 +2962,11 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
                 verbose=verbose,
                 split_special_tokens=split_special_tokens,
                 **kwargs,
-            )
+            ), tracer.reset_condition_stack(idx))[0]
         else:
-            return self.encode_plus(
+            idx = tracer.add_condition("is_batched", {"is_batched": is_batched})
+            return (self.encode_plus(
+                tracer,
                 text=text,
                 text_pair=text_pair,
                 add_special_tokens=add_special_tokens,
@@ -2983,7 +2987,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
                 verbose=verbose,
                 split_special_tokens=split_special_tokens,
                 **kwargs,
-            )
+            ), tracer.reset_condition_stack(idx))[0]
 
     @add_end_docstrings(ENCODE_KWARGS_DOCSTRING, ENCODE_PLUS_ADDITIONAL_KWARGS_DOCSTRING)
     def encode_plus(
@@ -3088,6 +3092,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
     @add_end_docstrings(ENCODE_KWARGS_DOCSTRING, ENCODE_PLUS_ADDITIONAL_KWARGS_DOCSTRING)
     def batch_encode_plus(
         self,
+        tracer,
         batch_text_or_text_pairs: Union[
             List[TextInput],
             List[TextInputPair],
@@ -3133,6 +3138,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
 
         # Backward compatibility for 'truncation_strategy', 'pad_to_max_length'
         padding_strategy, truncation_strategy, max_length, kwargs = self._get_padding_truncation_strategies(
+            tracer,
             padding=padding,
             truncation=truncation,
             max_length=max_length,
@@ -3142,6 +3148,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
         )
 
         return self._batch_encode_plus(
+            tracer,
             batch_text_or_text_pairs=batch_text_or_text_pairs,
             add_special_tokens=add_special_tokens,
             padding_strategy=padding_strategy,
