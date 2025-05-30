@@ -456,19 +456,19 @@ class CLIPTokenizer(PreTrainedTokenizer):
         self.cache[token] = word
         return word
 
-    def _tokenize(self, text):
+    def _tokenize(self, tracer, text):
         """Tokenize a string."""
         bpe_tokens = []
         if self.fix_text is None:
-            text = " ".join(self.nlp.tokenize(text))
+            text = " ".join(self.nlp.tokenize(tracer, text))
         else:
-            text = whitespace_clean(self.fix_text(text)).lower()
+            text = whitespace_clean(self.fix_text(tracer, text)).lower()
 
         for token in re.findall(self.pat, text):
             token = "".join(
                 self.byte_encoder[b] for b in token.encode("utf-8")
             )  # Maps all our bytes to unicode strings, avoiding control tokens of the BPE (spaces in our case)
-            bpe_tokens.extend(bpe_token for bpe_token in self.bpe(token).split(" "))
+            bpe_tokens.extend(bpe_token for bpe_token in self.bpe(tracer, token).split(" "))
         return bpe_tokens
 
     def _convert_token_to_id(self, token):
