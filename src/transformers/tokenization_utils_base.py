@@ -2772,6 +2772,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
     @add_end_docstrings(ENCODE_KWARGS_DOCSTRING, ENCODE_PLUS_ADDITIONAL_KWARGS_DOCSTRING)
     def __call__(
         self,
+        tracer,
         text: Union[TextInput, PreTokenizedInput, List[TextInput], List[PreTokenizedInput], None] = None,
         text_pair: Optional[Union[TextInput, PreTokenizedInput, List[TextInput], List[PreTokenizedInput]]] = None,
         text_target: Union[TextInput, PreTokenizedInput, List[TextInput], List[PreTokenizedInput], None] = None,
@@ -2844,12 +2845,16 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
         if text is not None:
             # The context manager will send the inputs as normal texts and not text_target, but we shouldn't change the
             # input mode in this case.
+            idx = tracer.add_condition("text is not None", {"text": text})
             if not self._in_target_context_manager:
                 self._switch_to_input_mode()
-            encodings = self._call_one(text=text, text_pair=text_pair, **all_kwargs)
+            encodings = self._call_one(tracer, text=text, text_pair=text_pair, **all_kwargs)
+            tracer.reset_condition_stack(idx)
         if text_target is not None:
             self._switch_to_target_mode()
-            target_encodings = self._call_one(text=text_target, text_pair=text_pair_target, **all_kwargs)
+            idx = tracer.add_condition("text_target is not None", {"text_target": text_target})
+            target_encodings = self._call_one(tracer, text=text_target, text_pair=text_pair_target, **all_kwargs)
+            tracer.reset_condition_stack(idx)
         # Leave back tokenizer in input mode
         self._switch_to_input_mode()
 
@@ -2863,6 +2868,7 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
 
     def _call_one(
         self,
+        tracer,
         text: Union[TextInput, PreTokenizedInput, List[TextInput], List[PreTokenizedInput]],
         text_pair: Optional[Union[TextInput, PreTokenizedInput, List[TextInput], List[PreTokenizedInput]]] = None,
         add_special_tokens: bool = True,
