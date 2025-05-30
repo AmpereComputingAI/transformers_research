@@ -703,8 +703,6 @@ class BatchEncoding(UserDict):
                 Whether or not to add the batch dimension during the conversion.
         """
 
-        print(tracer)
-        sfd
         if tensor_type is None:
             return self
         idx = tracer.add_condition("not (tensor_type is None)", {"tensor_type": tensor_type})
@@ -810,6 +808,9 @@ class BatchEncoding(UserDict):
                 ) from e
         tracer.reset_loop_stack(loop_idx)
         tracer.reset_condition_stack(idx)
+        print(tracer)
+        print(self)
+        sfd
         return self
 
     def to(self, device: Union[str, "torch.device"], *, non_blocking: bool = False) -> "BatchEncoding":
