@@ -280,7 +280,6 @@ class BatchEncoding(UserDict):
             )
 
     def __getattr__(self, item: str):
-        print(self.data)
         try:
             return self.data[item]
         except KeyError:
@@ -778,9 +777,9 @@ class BatchEncoding(UserDict):
                 if prepend_batch_axis:
                     value = [value]
 
-                x = is_tensor(value)
-                tracer.add_op("torch.is_tensor", {"obj": value}, {"output": x})
-                if not x:
+                y = is_tensor(value)
+                tracer.add_op("torch.is_tensor", {"obj": value}, {"output": y})
+                if not y:
                     idxx = tracer.add_condition("not torch.is_tensor(value)", {"value": value})
                     tensor = as_tensor(value)
 
