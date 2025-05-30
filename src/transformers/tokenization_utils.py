@@ -618,7 +618,7 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
         token_ids_1 = []
         return len(self.build_inputs_with_special_tokens(token_ids_0, token_ids_1 if pair else None))
 
-    def tokenize(self, text: TextInput, **kwargs) -> list[str]:
+    def tokenize(self, tracer, text: TextInput, **kwargs) -> list[str]:
         """
         Converts a string into a sequence of tokens, using the tokenizer.
 
@@ -636,7 +636,7 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
         """
         split_special_tokens = kwargs.pop("split_special_tokens", self.split_special_tokens)
 
-        text, kwargs = self.prepare_for_tokenization(text, **kwargs)
+        text, kwargs = self.prepare_for_tokenization(tracer, text, **kwargs)
 
         if kwargs:
             logger.warning(f"Keyword arguments {kwargs} not recognized.")
@@ -694,7 +694,7 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
             if token in no_split_token:
                 tokenized_text.append(token)
             else:
-                tokenized_text.extend(self._tokenize(token))
+                tokenized_text.extend(self._tokenize(tracer, token))
         # ["This", " is", " something", "<special_token_1>", "else"]
         return tokenized_text
 
@@ -987,7 +987,7 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
         return batch_outputs
 
     def prepare_for_tokenization(
-        self, text: str, is_split_into_words: bool = False, **kwargs
+        self, tracer, text: str, is_split_into_words: bool = False, **kwargs
     ) -> tuple[str, dict[str, Any]]:
         """
         Performs any necessary transformations before tokenization.
