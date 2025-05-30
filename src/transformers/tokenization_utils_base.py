@@ -2870,7 +2870,9 @@ class PreTrainedTokenizerBase(SpecialTokensMixin, PushToHubMixin):
             idx = tracer.add_condition("text is not None", {"text": text})
             if not self._in_target_context_manager:
                 self._switch_to_input_mode()
+            tracer.debug()
             encodings = self._call_one(tracer, text=text, text_pair=text_pair, **all_kwargs)
+            tracer.debug()
             tracer.reset_condition_stack(idx)
         if text_target is not None:
             self._switch_to_target_mode()
