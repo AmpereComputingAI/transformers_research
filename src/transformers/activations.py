@@ -83,8 +83,14 @@ class QuickGELUActivation(nn.Module):
     Applies GELU approximation that is fast but somewhat inaccurate. See: https://github.com/hendrycks/GELUs
     """
 
-    def forward(self, input: Tensor) -> Tensor:
-        return input * torch.sigmoid(1.702 * input)
+    def forward(self, tracer, input: Tensor) -> Tensor:
+        x = 1.702 * input
+        tracer.add_op("torch.mul", {"input": input, "other": 1.702}, {"output": x})
+        y = torch.sigmoid(x)
+        tracer.add_op("torch.sigmoid", {"input": x}, {"output": y})
+        x = input * y
+        tracer.add_op("torch.mul", {"input": input, "other": y}, {"output": x})
+        return x
 
 
 class ClippedGELUActivation(nn.Module):
