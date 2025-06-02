@@ -955,7 +955,7 @@ class PreTrainedTokenizer(PreTrainedTokenizerBase):
         batch_outputs = {}
         idx = tracer.add_loop("for first_ids, second_ids in batch_ids_pairs", {"batch_ids_pairs": batch_ids_pairs})
         for first_ids, second_ids in batch_ids_pairs:
-            tracer.loop_stack[idx].iteration()
+            # tracer.loop_stack[idx].iteration()
             outputs = self.prepare_for_model(
                 tracer,
                 first_ids,

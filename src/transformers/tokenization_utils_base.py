@@ -774,7 +774,7 @@ class BatchEncoding(UserDict):
         # Do the tensor conversion in batch
         loop_idx = tracer.add_loop("for key, value in self.items()", {"self": self})
         for key, value in self.items():
-            tracer.loop_stack[loop_idx].iteration()
+            #tracer.loop_stack[loop_idx].iteration()
             try:
                 if prepend_batch_axis:
                     value = [value]
