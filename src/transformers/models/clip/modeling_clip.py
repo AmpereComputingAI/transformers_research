@@ -248,10 +248,13 @@ class CLIPTextEmbeddings(nn.Module):
 
     def forward(
         self,
+        tracer,
         input_ids: Optional[torch.LongTensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
     ) -> torch.Tensor:
+        tracer.summary()
+        sdf
         seq_length = input_ids.shape[-1] if input_ids is not None else inputs_embeds.shape[-2]
         max_position_embedding = self.position_embedding.weight.shape[0]
 
@@ -623,6 +626,7 @@ class CLIPTextTransformer(nn.Module):
     @auto_docstring
     def forward(
         self,
+        tracer,
         input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.Tensor] = None,
@@ -638,9 +642,14 @@ class CLIPTextTransformer(nn.Module):
             raise ValueError("You have to specify input_ids")
 
         input_shape = input_ids.size()
+        tracer.add_op("torch.Tensor.size", {}, {})
         input_ids = input_ids.view(-1, input_shape[-1])
+        tracer.add_op("torch.Tensor.view", {"shape": (-1, input_shape[-1])}, {})
 
-        hidden_states = self.embeddings(input_ids=input_ids, position_ids=position_ids)
+        with tracer.section("CLIPTextEmbeddings"):
+            hidden_states = self.embeddings(tracer, input_ids=input_ids, position_ids=position_ids)
+
+        df
 
         # CLIP's text model uses causal mask, prepare it here.
         # https://github.com/openai/CLIP/blob/cfcffb90e69f37bf2ff1e988237a0fbe41f33c04/clip/model.py#L324
@@ -1128,15 +1137,15 @@ class CLIPTextModelWithProjection(CLIPPreTrainedModel):
         >>> text_embeds = outputs.text_embeds
         ```"""
 
-        print(self.text_model)
-        text_outputs: BaseModelOutputWithPooling = self.text_model(
-            tracer,
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-        )
+        with tracer.section("CLIPTextTransformer"):
+            text_outputs: BaseModelOutputWithPooling = self.text_model(
+                tracer,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+            )
         pooled_output = text_outputs.pooler_output
         text_embeds = self.text_projection(tracer, pooled_output)
 
