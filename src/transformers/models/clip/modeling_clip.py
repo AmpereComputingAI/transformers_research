@@ -411,9 +411,6 @@ class CLIPAttention(nn.Module):
             else:
                 attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
 
-        tracer.summary()
-        print(attention_interface)
-
         attn_output, attn_weights = attention_interface(
             self,
             tracer,
@@ -427,10 +424,15 @@ class CLIPAttention(nn.Module):
             output_attentions=output_attentions,
         )
 
-        sd
-
-        attn_output = attn_output.reshape(batch_size, seq_length, embed_dim).contiguous()
-        attn_output = self.out_proj(attn_output)
+        attn_output_ = attn_output.reshape(batch_size, seq_length, embed_dim).contiguous()
+        input_dict = tracer.get_dict([batch_size, seq_length, embed_dim])
+        input_dict["input"] = attn_output
+        tracer.add_op("torch.Tensor.reshape", input_dict, {"output": attn_output_})
+        attn_output = attn_output_
+        attn_output_ = self.out_proj(attn_output)
+        tracer.add_op("torch.nn.Linear", {"input": attn_output}, {"output": attn_output_},
+                      {"in_features": self.embed_dim, "out_features": self.embed_dim})
+        attn_output = attn_output_
 
         if not output_attentions:
             attn_weights = None
@@ -485,13 +487,14 @@ class CLIPEncoderLayer(nn.Module):
         hidden_states = self.layer_norm1(hidden_states)
         tracer.add_op("torch.nn.LayerNorm", {"input": hidden_states}, {"output": hidden_states},
                       {"normalized_shape": self.embed_dim, "eps": self.eps})
-        hidden_states, attn_weights = self.self_attn(
-            tracer,
-            hidden_states=hidden_states,
-            attention_mask=attention_mask,
-            causal_attention_mask=causal_attention_mask,
-            output_attentions=output_attentions,
-        )
+        with tracer.section(self.self_attn):
+            hidden_states, attn_weights = self.self_attn(
+                tracer,
+                hidden_states=hidden_states,
+                attention_mask=attention_mask,
+                causal_attention_mask=causal_attention_mask,
+                output_attentions=output_attentions,
+            )
         hidden_states_ = residual + hidden_states
         tracer.add_op("torch.add", {"input": residual, "other": hidden_states}, {"output": hidden_states_})
         hidden_states = hidden_states_
@@ -742,14 +745,15 @@ class CLIPTextTransformer(nn.Module):
             with tracer.section("prepare 4D attn mask"):
                 attention_mask = _prepare_4d_attention_mask(tracer, attention_mask, hidden_states.dtype)
 
-        encoder_outputs: BaseModelOutput = self.encoder(
-            tracer,
-            inputs_embeds=hidden_states,
-            attention_mask=attention_mask,
-            causal_attention_mask=causal_attention_mask,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-        )
+        with tracer.section(self.encoder):
+            encoder_outputs: BaseModelOutput = self.encoder(
+                tracer,
+                inputs_embeds=hidden_states,
+                attention_mask=attention_mask,
+                causal_attention_mask=causal_attention_mask,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+            )
 
         tracer.summary()
 
