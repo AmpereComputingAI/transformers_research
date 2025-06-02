@@ -684,11 +684,11 @@ class CLIPEncoder(nn.Module):
                               {"output": all_attentions_})
                 all_attentions = all_attentions_
 
-        tracer.summary()
-        fsd
-
         if output_hidden_states:
-            encoder_states = encoder_states + (hidden_states,)
+            encoder_states_ = encoder_states + (hidden_states,)
+            tracer.add_op("torch.add", {"input": encoder_states, "other": hidden_states},
+                          {"output": encoder_states_})
+            encoder_states = encoder_states_
 
         return BaseModelOutput(
             last_hidden_state=hidden_states,
