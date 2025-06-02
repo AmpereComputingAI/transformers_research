@@ -586,7 +586,7 @@ class CLIPEncoder(nn.Module):
 
         encoder_states = () if output_hidden_states else None
         all_attentions = () if output_attentions else None
-        
+
         tracer.summary()
         fsd
 
