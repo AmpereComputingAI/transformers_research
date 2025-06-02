@@ -173,7 +173,7 @@ class AttentionMaskConverter:
         x = mask_cond + 1
         tracer.add_op("torch.add", {"input": mask_cond, "other": 1}, {"output": x})
         y = x.view(mask.size(-1), 1)
-        tracer.add_op("torch.Tensor.view", {"0": mask.size(-1), "1": 1})
+        tracer.add_op("torch.Tensor.view", {"0": mask.size(-1), "1": 1}, {"output": y})
         z = mask_cond < y
         mask.masked_fill_(z, 0)
         tracer.add_op("torch.lt", {"input": mask_cond, "other": y}, {"output": z})
