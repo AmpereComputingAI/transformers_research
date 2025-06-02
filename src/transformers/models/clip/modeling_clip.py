@@ -412,8 +412,8 @@ class CLIPAttention(nn.Module):
                 attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
 
         attn_output, attn_weights = attention_interface(
-            self,
             tracer,
+            self,
             queries,
             keys,
             values,
