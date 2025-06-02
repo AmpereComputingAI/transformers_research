@@ -663,15 +663,16 @@ class CLIPTextTransformer(nn.Module):
         with tracer.section(self.embeddings):
             hidden_states = self.embeddings(tracer, input_ids=input_ids, position_ids=position_ids)
 
+        # CLIP's text model uses causal mask, prepare it here.
+        # https://github.com/openai/CLIP/blob/cfcffb90e69f37bf2ff1e988237a0fbe41f33c04/clip/model.py#L324
+        with tracer.section("create 4D causal mask"):
+            causal_attention_mask = _create_4d_causal_attention_mask(
+                tracer, input_shape, hidden_states.dtype, device=hidden_states.device
+            )
+
         tracer.summary()
 
         df
-
-        # CLIP's text model uses causal mask, prepare it here.
-        # https://github.com/openai/CLIP/blob/cfcffb90e69f37bf2ff1e988237a0fbe41f33c04/clip/model.py#L324
-        causal_attention_mask = _create_4d_causal_attention_mask(
-            input_shape, hidden_states.dtype, device=hidden_states.device
-        )
 
         # expand attention_mask
         if attention_mask is not None and not self._use_flash_attention_2:

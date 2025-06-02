@@ -71,6 +71,7 @@ class AttentionMaskConverter:
 
     def to_causal_4d(
         self,
+        tracer,
         batch_size: int,
         query_length: int,
         key_value_length: int,
@@ -93,6 +94,7 @@ class AttentionMaskConverter:
         causal_4d_mask = None
         if input_shape[-1] > 1 or self.sliding_window is not None:
             causal_4d_mask = self._make_causal_mask(
+                tracer,
                 input_shape,
                 dtype,
                 device=device,
@@ -151,6 +153,7 @@ class AttentionMaskConverter:
 
     @staticmethod
     def _make_causal_mask(
+        tracer,
         input_ids_shape: torch.Size,
         dtype: torch.dtype,
         device: torch.device,
@@ -162,10 +165,25 @@ class AttentionMaskConverter:
         """
         bsz, tgt_len = input_ids_shape
         mask = torch.full((tgt_len, tgt_len), torch.finfo(dtype).min, device=device)
+        tracer.add_op("torch.full", {"size": (tgt_len, tgt_len), "fill_value": torch.finfo(dtype).min},
+                      {"output": mask})
         mask_cond = torch.arange(mask.size(-1), device=device)
-        mask.masked_fill_(mask_cond < (mask_cond + 1).view(mask.size(-1), 1), 0)
+        tracer.add_op("torch.arange", {"end": mask.size(-1)}, {"output": mask_cond})
+
+        x = mask_cond + 1
+        tracer.add_op("torch.add", {"input": mask_cond, "other": 1}, {"output": x})
+        y = x.view(mask.size(-1), 1)
+        tracer.add_op("torch.Tensor.view", {"0": mask.size(-1), "1": 1})
+        z = mask_cond < y
+        mask.masked_fill_(z, 0)
+        tracer.add_op("torch.lt", {"input": mask_cond, "other": y}, {"output": z})
+        tracer.add_op("torch.Tensor.masked_fill_", {"mask": z, "value": 0}, {"output": mask})
 
         mask = mask.to(dtype)
+
+        tracer.summary()
+
+        df
 
         if past_key_values_length > 0:
             mask = torch.cat([torch.zeros(tgt_len, past_key_values_length, dtype=dtype, device=device), mask], dim=-1)
@@ -458,6 +476,7 @@ def _prepare_4d_attention_mask_for_sdpa(mask: torch.Tensor, dtype: torch.dtype, 
 
 
 def _create_4d_causal_attention_mask(
+    tracer,
     input_shape: Union[torch.Size, tuple, list],
     dtype: torch.dtype,
     device: torch.device,
@@ -481,7 +500,7 @@ def _create_4d_causal_attention_mask(
 
     key_value_length = past_key_values_length + input_shape[-1]
     attention_mask = attn_mask_converter.to_causal_4d(
-        input_shape[0], input_shape[-1], key_value_length, dtype=dtype, device=device
+        tracer, input_shape[0], input_shape[-1], key_value_length, dtype=dtype, device=device
     )
 
     return attention_mask
