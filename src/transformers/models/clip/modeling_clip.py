@@ -662,6 +662,8 @@ class CLIPTextTransformer(nn.Module):
         with tracer.section(self.embeddings):
             hidden_states = self.embeddings(tracer, input_ids=input_ids, position_ids=position_ids)
 
+        tracer.summary()
+
         df
 
         # CLIP's text model uses causal mask, prepare it here.
