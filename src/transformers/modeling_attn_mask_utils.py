@@ -168,18 +168,22 @@ class AttentionMaskConverter:
         tracer.add_op("torch.full", {"size": (tgt_len, tgt_len), "fill_value": torch.finfo(dtype).min},
                       {"output": mask})
         mask_cond = torch.arange(mask.size(-1), device=device)
+        tracer.add_op("torch.Tensor.size", {}, {"0": mask.size(-1)})
         tracer.add_op("torch.arange", {"end": mask.size(-1)}, {"output": mask_cond})
 
         x = mask_cond + 1
         tracer.add_op("torch.add", {"input": mask_cond, "other": 1}, {"output": x})
         y = x.view(mask.size(-1), 1)
+        tracer.add_op("torch.Tensor.size", {}, {"0": mask.size(-1)})
         tracer.add_op("torch.Tensor.view", {"0": mask.size(-1), "1": 1}, {"output": y})
         z = mask_cond < y
         mask.masked_fill_(z, 0)
         tracer.add_op("torch.lt", {"input": mask_cond, "other": y}, {"output": z})
         tracer.add_op("torch.Tensor.masked_fill_", {"mask": z, "value": 0}, {"output": mask})
 
-        mask = mask.to(dtype)
+        mask_ = mask.to(dtype)
+        tracer.add_op("torch.Tensor.to", {"input": mask, "target": dtype}, {"output": mask_})
+        mask = mask_
 
         if past_key_values_length > 0:
             x = torch.zeros(tgt_len, past_key_values_length, dtype=dtype, device=device)
@@ -211,18 +215,34 @@ class AttentionMaskConverter:
         return x
 
     @staticmethod
-    def _expand_mask(mask: torch.Tensor, dtype: torch.dtype, tgt_len: Optional[int] = None):
+    def _expand_mask(tracer, mask: torch.Tensor, dtype: torch.dtype, tgt_len: Optional[int] = None):
         """
         Expands attention_mask from `[bsz, seq_len]` to `[bsz, 1, tgt_seq_len, src_seq_len]`.
         """
         bsz, src_len = mask.size()
+        tracer.add_op("torch.Tensor.size", {}, {"0": bsz, "1": src_len})
         tgt_len = tgt_len if tgt_len is not None else src_len
 
-        expanded_mask = mask[:, None, None, :].expand(bsz, 1, tgt_len, src_len).to(dtype)
+        y = mask[:, None, None, :].expand(bsz, 1, tgt_len, src_len)
+        tracer.add_op("torch.Tensor.expand",
+                      {f"{i}": val for i, val in enumerate([bsz, 1, tgt_len, src_len])},
+                      {"output": y})
+        expanded_mask = y.to(dtype)
+        tracer.add_op("torch.Tensor.to", {"input": y, "target": dtype}, {"output": expanded_mask})
 
         inverted_mask = 1.0 - expanded_mask
+        tracer.add_op("torch.sub",
+                      {"input": 1.0, "other": expanded_mask},
+                      {"output": inverted_mask})
 
-        return inverted_mask.masked_fill(inverted_mask.to(torch.bool), torch.finfo(dtype).min)
+        y = inverted_mask.to(torch.bool)
+        tracer.add_op("torch.Tensor.to", {"input": inverted_mask, "target": torch.bool}, {"output": y})
+
+        x = inverted_mask.masked_fill(y, torch.finfo(dtype).min)
+        tracer.add_op("torch.Tensor.masked_fill_",
+                      {"mask": y, "value": torch.finfo(dtype).min},
+                      {"output": x})
+        return x
 
     @staticmethod
     def _unmask_unattended(
@@ -443,7 +463,7 @@ def _prepare_4d_causal_attention_mask_for_sdpa(
     return expanded_4d_mask
 
 
-def _prepare_4d_attention_mask(mask: torch.Tensor, dtype: torch.dtype, tgt_len: Optional[int] = None):
+def _prepare_4d_attention_mask(tracer, mask: torch.Tensor, dtype: torch.dtype, tgt_len: Optional[int] = None):
     """
     Creates a non-causal 4D mask of shape `(batch_size, 1, query_length, key_value_length)` from a 2D mask of shape
     `(batch_size, key_value_length)`
@@ -456,7 +476,7 @@ def _prepare_4d_attention_mask(mask: torch.Tensor, dtype: torch.dtype, tgt_len: 
         tgt_len (`int`):
             The target length or query length the created mask shall have.
     """
-    return AttentionMaskConverter._expand_mask(mask=mask, dtype=dtype, tgt_len=tgt_len)
+    return AttentionMaskConverter._expand_mask(tracer, mask=mask, dtype=dtype, tgt_len=tgt_len)
 
 
 def _prepare_4d_attention_mask_for_sdpa(mask: torch.Tensor, dtype: torch.dtype, tgt_len: Optional[int] = None):

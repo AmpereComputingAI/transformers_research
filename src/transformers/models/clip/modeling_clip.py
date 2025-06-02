@@ -543,6 +543,7 @@ class CLIPEncoder(nn.Module):
     @can_return_tuple
     def forward(
         self,
+        tracer,
         inputs_embeds,
         attention_mask: Optional[torch.Tensor] = None,
         causal_attention_mask: Optional[torch.Tensor] = None,
@@ -585,6 +586,9 @@ class CLIPEncoder(nn.Module):
 
         encoder_states = () if output_hidden_states else None
         all_attentions = () if output_attentions else None
+        
+        tracer.summary()
+        fsd
 
         hidden_states = inputs_embeds
         for idx, encoder_layer in enumerate(self.layers):
@@ -665,27 +669,29 @@ class CLIPTextTransformer(nn.Module):
 
         # CLIP's text model uses causal mask, prepare it here.
         # https://github.com/openai/CLIP/blob/cfcffb90e69f37bf2ff1e988237a0fbe41f33c04/clip/model.py#L324
-        with tracer.section("create 4D causal mask"):
+        with tracer.section("create 4D causal attn mask"):
             causal_attention_mask = _create_4d_causal_attention_mask(
                 tracer, input_shape, hidden_states.dtype, device=hidden_states.device
             )
 
-        tracer.summary()
-
-        df
-
         # expand attention_mask
         if attention_mask is not None and not self._use_flash_attention_2:
             # [batch_size, seq_len] -> [batch_size, 1, tgt_seq_len, src_seq_len]
-            attention_mask = _prepare_4d_attention_mask(attention_mask, hidden_states.dtype)
+            with tracer.section("prepare 4D attn mask"):
+                attention_mask = _prepare_4d_attention_mask(tracer, attention_mask, hidden_states.dtype)
 
         encoder_outputs: BaseModelOutput = self.encoder(
+            tracer,
             inputs_embeds=hidden_states,
             attention_mask=attention_mask,
             causal_attention_mask=causal_attention_mask,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
         )
+
+        tracer.summary()
+
+        df
 
         last_hidden_state = encoder_outputs.last_hidden_state
         last_hidden_state = self.final_layer_norm(last_hidden_state)
