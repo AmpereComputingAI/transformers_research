@@ -1106,6 +1106,7 @@ class CLIPTextModelWithProjection(CLIPPreTrainedModel):
     @auto_docstring
     def forward(
         self,
+        tracer,
         input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.Tensor] = None,
@@ -1127,7 +1128,9 @@ class CLIPTextModelWithProjection(CLIPPreTrainedModel):
         >>> text_embeds = outputs.text_embeds
         ```"""
 
+        print(self.text_model)
         text_outputs: BaseModelOutputWithPooling = self.text_model(
+            tracer,
             input_ids=input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,
@@ -1135,9 +1138,10 @@ class CLIPTextModelWithProjection(CLIPPreTrainedModel):
             output_hidden_states=output_hidden_states,
         )
         pooled_output = text_outputs.pooler_output
-        text_embeds = self.text_projection(pooled_output)
+        text_embeds = self.text_projection(tracer, pooled_output)
 
         return CLIPTextModelOutput(
+            tracer,
             text_embeds=text_embeds,
             last_hidden_state=text_outputs.last_hidden_state,
             hidden_states=text_outputs.hidden_states,
