@@ -1205,6 +1205,8 @@ class CLIPTextModelWithProjection(CLIPPreTrainedModel):
         text_model = CLIPTextModel._from_config(config)
         self.text_model = text_model.text_model
 
+        self.x = config.hidden_size
+        self.y = config.projection_dim
         self.text_projection = nn.Linear(config.hidden_size, config.projection_dim, bias=False)
 
         # Initialize weights and apply final processing
@@ -1252,10 +1254,11 @@ class CLIPTextModelWithProjection(CLIPPreTrainedModel):
                 output_hidden_states=output_hidden_states,
             )
         pooled_output = text_outputs.pooler_output
-        text_embeds = self.text_projection(tracer, pooled_output)
+        text_embeds = self.text_projection(pooled_output)
+        tracer.add_op("torch.nn.Linear", {"input": pooled_output}, {"output": text_embeds},
+                      {"in_features": self.x, "out_features": self.y, "bias": False})
 
         return CLIPTextModelOutput(
-            tracer,
             text_embeds=text_embeds,
             last_hidden_state=text_outputs.last_hidden_state,
             hidden_states=text_outputs.hidden_states,
