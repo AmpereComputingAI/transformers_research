@@ -705,6 +705,8 @@ class CLIPTextTransformer(nn.Module):
         self.embeddings = CLIPTextEmbeddings(config)
         self.encoder = CLIPEncoder(config)
         self.final_layer_norm = nn.LayerNorm(embed_dim, eps=config.layer_norm_eps)
+        self.embed_dim = embed_dim
+        self.eps = config.layer_norm_eps
 
         # For `pooled_output` computation
         self.eos_token_id = config.eos_token_id
@@ -762,12 +764,11 @@ class CLIPTextTransformer(nn.Module):
                 output_hidden_states=output_hidden_states,
             )
 
-        tracer.summary()
-
-        df
-
         last_hidden_state = encoder_outputs.last_hidden_state
-        last_hidden_state = self.final_layer_norm(last_hidden_state)
+        last_hidden_state_ = self.final_layer_norm(last_hidden_state)
+        tracer.add_op("torch.nn.LayerNorm", {"input": last_hidden_state}, {"output": last_hidden_state_},
+                      {"normalized_shape": self.embed_dim, "eps": self.eps})
+        last_hidden_state = last_hidden_state_
 
         if self.eos_token_id == 2:
             # The `eos_token_id` was incorrect before PR #24773: Let's keep what have been done here.
@@ -776,11 +777,19 @@ class CLIPTextTransformer(nn.Module):
             # text_embeds.shape = [batch_size, sequence_length, transformer.width]
             # take features from the eot embedding (eot_token is the highest number in each sequence)
             # casting to torch.int for onnx compatibility: argmax doesn't support int64 inputs with opset 14
+            tracer.add_op("torch.Tensor.size", {"input": last_hidden_state}, {"output": last_hidden_state.shape[0]})
+            x = torch.arange(last_hidden_state.shape[0], device=last_hidden_state.device)
+            tracer.add_op("torch.arange", {"end": last_hidden_state.shape[0]}, {"output": x})
+            y = input_ids.to(dtype=torch.int, device=last_hidden_state.device)
+            tracer.add_op("torch.Tensor.to", {"input": input_ids, "dtype": torch.int}, {"output": y})
+            z = y.argmax(dim=-1)
+            tracer.add_op("torch.Tensor.argmax", {"input": y, "dim": -1}, {"output": z})
             pooled_output = last_hidden_state[
-                torch.arange(last_hidden_state.shape[0], device=last_hidden_state.device),
-                input_ids.to(dtype=torch.int, device=last_hidden_state.device).argmax(dim=-1),
+                x,
+                z,
             ]
         else:
+            tracer.vomit()
             # The config gets updated `eos_token_id` from PR #24773 (so the use of exta new tokens is possible)
             pooled_output = last_hidden_state[
                 torch.arange(last_hidden_state.shape[0], device=last_hidden_state.device),
