@@ -181,25 +181,34 @@ class AttentionMaskConverter:
 
         mask = mask.to(dtype)
 
-        tracer.summary()
-
-        df
-
         if past_key_values_length > 0:
-            mask = torch.cat([torch.zeros(tgt_len, past_key_values_length, dtype=dtype, device=device), mask], dim=-1)
+            x = torch.zeros(tgt_len, past_key_values_length, dtype=dtype, device=device)
+            tracer.add_op("torch.zeros", {"0": tgt_len, "1": past_key_values_length}, {"output": x})
+            mask = torch.cat([x, mask], dim=-1)
+            tracer.add_op("torch.cat", {"tensors": [x, mask], "dim": -1}, {"output": mask})
 
         # add lower triangular sliding window mask if necessary
         if sliding_window is not None:
             diagonal = past_key_values_length - sliding_window - 1
 
-            context_mask = torch.tril(torch.ones_like(mask, dtype=torch.bool), diagonal=diagonal)
+            x = torch.ones_like(mask, dtype=torch.bool)
+            tracer.add_op("torch.ones_like", {"input": mask}, {"output": x})
+
+            context_mask = torch.tril(x, diagonal=diagonal)
+            tracer.add_op("torch.tril", {"input": x, "diagonal": diagonal}, {"output": context_mask})
+
             # Recent changes in PyTorch prevent mutations on tensors converted with aten::_to_copy
             # See https://github.com/pytorch/pytorch/issues/127571
             if is_torchdynamo_compiling():
                 mask = mask.clone()
             mask.masked_fill_(context_mask, torch.finfo(dtype).min)
+            tracer.add_op("torch.Tensor.masked_fill_", {"mask": context_mask, "value": torch.finfo(dtype).min}, {"output": mask})
 
-        return mask[None, None, :, :].expand(bsz, 1, tgt_len, tgt_len + past_key_values_length)
+        x = mask[None, None, :, :].expand(bsz, 1, tgt_len, tgt_len + past_key_values_length)
+        tracer.add_op("torch.Tensor.expand",
+                      {f"{i}": val for i, val in enumerate([bsz, 1, tgt_len, tgt_len + past_key_values_length])},
+                      {"output": x})
+        return x
 
     @staticmethod
     def _expand_mask(mask: torch.Tensor, dtype: torch.dtype, tgt_len: Optional[int] = None):
