@@ -238,6 +238,9 @@ class CLIPTextEmbeddings(nn.Module):
         super().__init__()
         embed_dim = config.hidden_size
 
+        self.vocab_size = config.vocab_size
+        self.embed_dim = config.hidden_size
+        self.max_position_embeddings = config.max_position_embeddings
         self.token_embedding = nn.Embedding(config.vocab_size, embed_dim)
         self.position_embedding = nn.Embedding(config.max_position_embeddings, embed_dim)
 
@@ -253,10 +256,14 @@ class CLIPTextEmbeddings(nn.Module):
         position_ids: Optional[torch.LongTensor] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
     ) -> torch.Tensor:
-        tracer.summary()
-        sdf
-        seq_length = input_ids.shape[-1] if input_ids is not None else inputs_embeds.shape[-2]
+        if input_ids is not None:
+            seq_length = input_ids.shape[-1]
+            tracer.add_op("torch.Tensor.size", {"0": -1}, {})
+        else:
+            seq_length = inputs_embeds.shape[-2]
+            tracer.add_op("torch.Tensor.size", {"0": -2}, {})
         max_position_embedding = self.position_embedding.weight.shape[0]
+        tracer.add_op("torch.Tensor.size", {"0": 0}, {})
 
         if seq_length > max_position_embedding:
             raise ValueError(
@@ -268,9 +275,15 @@ class CLIPTextEmbeddings(nn.Module):
             position_ids = self.position_ids[:, :seq_length]
 
         if inputs_embeds is None:
+            tracer.add_op("torch.nn.Embedding", {"input": input_ids}, {},
+                          {"num_embeddings": self.vocab_size, "embedding_dim": self.embed_dim})
             inputs_embeds = self.token_embedding(input_ids)
 
+        tracer.add_op("torch.nn.Embedding", {"input": position_ids}, {},
+                      {"num_embeddings": self.max_position_embeddings, "embedding_dim": self.embed_dim})
         position_embeddings = self.position_embedding(position_ids)
+
+        tracer.add_op("torch.add", {"input": inputs_embeds, "other": position_embeddings}, {})
         embeddings = inputs_embeds + position_embeddings
 
         return embeddings
@@ -644,9 +657,9 @@ class CLIPTextTransformer(nn.Module):
         input_shape = input_ids.size()
         tracer.add_op("torch.Tensor.size", {}, {})
         input_ids = input_ids.view(-1, input_shape[-1])
-        tracer.add_op("torch.Tensor.view", {"shape": (-1, input_shape[-1])}, {})
+        tracer.add_op("torch.Tensor.view", {"0": -1, "1": input_shape[-1]}, {})
 
-        with tracer.section("CLIPTextEmbeddings"):
+        with tracer.section(self.embeddings):
             hidden_states = self.embeddings(tracer, input_ids=input_ids, position_ids=position_ids)
 
         df
