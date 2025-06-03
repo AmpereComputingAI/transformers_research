@@ -65,8 +65,10 @@ class GELUActivation(nn.Module):
     def _gelu_python(self, input: Tensor) -> Tensor:
         return input * 0.5 * (1.0 + torch.erf(input / math.sqrt(2.0)))
 
-    def forward(self, input: Tensor) -> Tensor:
-        return self.act(input)
+    def forward(self, tracer, input: Tensor) -> Tensor:
+        x = self.act(input)
+        tracer.add_op("torch.nn.functional.gelu", {"input": input}, {"output": x})
+        return x
 
 
 class FastGELUActivation(nn.Module):
