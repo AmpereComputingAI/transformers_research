@@ -879,11 +879,13 @@ class T5PreTrainedModel(PreTrainedModel):
 
 
 class T5Stack(T5PreTrainedModel):
-    def __init__(self, config, embed_tokens=None):
+    def __init__(self, config, embed_tokens=None, x, y):
         super().__init__(config)
 
         self.embed_tokens = embed_tokens
         self.is_decoder = config.is_decoder
+        self.x = x
+        self.y = y
 
         self.block = nn.ModuleList(
             [T5Block(config, has_relative_attention_bias=bool(i == 0), layer_idx=i) for i in range(config.num_layers)]
@@ -1006,9 +1008,9 @@ class T5Stack(T5PreTrainedModel):
         if inputs_embeds is None:
             if self.embed_tokens is None:
                 raise ValueError("You have to initialize the model with valid token embeddings")
-            print(self.embed_tokens)
             inputs_embeds = self.embed_tokens(tracer, input_ids)
-            f
+            tracer.add_op("torch.nn.Embedding", {"input": input_ids, "num_embeddings": self.x, "embedding_dim": self.y},
+                          {"output": inputs_embeds})
 
         batch_size, seq_length = input_shape
 
@@ -1016,16 +1018,15 @@ class T5Stack(T5PreTrainedModel):
             if not self.is_decoder:
                 raise ValueError(f"`use_cache` can only be set to `True` if {self} is used as a decoder")
 
-        ff
-
         # initialize past_key_values
         return_legacy_cache = False
         return_self_attention_cache = False
         if self.is_decoder and (use_cache or past_key_values is not None):
             if isinstance(past_key_values, Cache) and not isinstance(past_key_values, EncoderDecoderCache):
                 return_self_attention_cache = True
-                past_key_values = EncoderDecoderCache(past_key_values, DynamicCache())
+                past_key_values = EncoderDecoderCache(tracer, past_key_values, DynamicCache())
             elif not isinstance(past_key_values, EncoderDecoderCache):
+                tracer.vomit()
                 return_legacy_cache = True
                 logger.warning_once(
                     "Passing a tuple of `past_key_values` is deprecated and will be removed in Transformers v4.48.0. "
@@ -1034,11 +1035,14 @@ class T5Stack(T5PreTrainedModel):
                 )
                 past_key_values = EncoderDecoderCache.from_legacy_cache(past_key_values)
             elif past_key_values is None:
-                past_key_values = EncoderDecoderCache(DynamicCache(), DynamicCache())
+                past_key_values = EncoderDecoderCache(tracer, DynamicCache(), DynamicCache())
         elif not self.is_decoder:
             # do not pass cache object down the line for encoder stack
             # it messes indexing later in decoder-stack because cache object is modified in-place
             past_key_values = None
+
+        tracer.summary()
+        ff
 
         past_key_values_length = past_key_values.get_seq_length() if past_key_values is not None else 0
         if cache_position is None:
@@ -1920,7 +1924,7 @@ class T5EncoderModel(T5PreTrainedModel):
         encoder_config = copy.deepcopy(config)
         encoder_config.use_cache = False
         encoder_config.is_encoder_decoder = False
-        self.encoder = T5Stack(encoder_config, self.shared)
+        self.encoder = T5Stack(encoder_config, self.shared, config.vocab_size, config.d_model)
 
         # Initialize weights and apply final processing
         self.post_init()

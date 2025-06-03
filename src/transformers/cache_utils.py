@@ -559,7 +559,7 @@ class DynamicCache(Cache):
 
         return self.key_cache[layer_idx], self.value_cache[layer_idx]
 
-    def get_seq_length(self, layer_idx: Optional[int] = 0) -> int:
+    def get_seq_length(self, tracer, layer_idx: Optional[int] = 0) -> int:
         """Returns the sequence length of the cached states. A layer index can be optionally passed."""
         # TODO: deprecate this function in favor of `cache_position`
         is_empty_layer = (
@@ -567,7 +567,11 @@ class DynamicCache(Cache):
             or len(self.key_cache) <= layer_idx  # skipped `layer_idx` and hasn't run a layer with cache after it
             or not self.key_cache[layer_idx].numel()  # the layer has no cache
         )
-        layer_seq_length = self.key_cache[layer_idx].shape[-2] if not is_empty_layer else 0
+        if not is_empty_layer:
+            layer_seq_length = self.key_cache[layer_idx].shape[-2]
+            tracer.add_op("torch.Tensor.size", {"input": self.key_cache[layer_idx]}, {"output": layer_seq_length})
+        else:
+            layer_seq_length = 0
         return layer_seq_length
 
     def get_max_cache_shape(self) -> Optional[int]:
@@ -1571,7 +1575,7 @@ class EncoderDecoderCache(Cache):
 
     """
 
-    def __init__(self, self_attention_cache: Cache, cross_attention_cache: Cache):
+    def __init__(self, tracer, self_attention_cache: Cache, cross_attention_cache: Cache):
         super().__init__()
         self.self_attention_cache = self_attention_cache
         self.cross_attention_cache = cross_attention_cache
@@ -1579,7 +1583,7 @@ class EncoderDecoderCache(Cache):
 
         self.is_updated = {}
         for layer_idx in range(len(cross_attention_cache.key_cache)):
-            self.is_updated[layer_idx] = bool(cross_attention_cache.get_seq_length(layer_idx) > 0)
+            self.is_updated[layer_idx] = bool(cross_attention_cache.get_seq_length(tracer, layer_idx) > 0)
 
     def __getitem__(self, layer_idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
