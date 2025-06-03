@@ -350,11 +350,13 @@ class T5LayerFF(nn.Module):
         self.layer_norm = T5LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
         self.dropout = nn.Dropout(config.dropout_rate)
 
-    def forward(self, hidden_states):
+    def forward(self, tracer, hidden_states):
         forwarded_states = self.layer_norm(hidden_states)
-        forwarded_states = self.DenseReluDense(forwarded_states)
-        hidden_states = hidden_states + self.dropout(forwarded_states)
-        return hidden_states
+        tracer.add_op("apex.normalization.FusedRMSNorm", {"input": hidden_states}, {"output": forwarded_states})
+        forwarded_states = self.DenseReluDense(tracer, forwarded_states)
+        hidden_states_ = hidden_states + self.dropout(forwarded_states)
+        tracer.add_op("torch.add", {"input": hidden_states, "other": forwarded_states}, {"output": hidden_states_})
+        return hidden_states_
 
 
 class T5Attention(nn.Module):
