@@ -813,10 +813,9 @@ class T5Block(nn.Module):
         hidden_states, past_key_value = self_attention_outputs[:2]
         attention_outputs = self_attention_outputs[2:]  # Keep self-attention outputs and relative position weights
 
-        dd
-
         # clamp inf values to enable fp16 training
         if hidden_states.dtype == torch.float16:
+            tracer.vomit()
             clamp_value = torch.where(
                 torch.isinf(hidden_states).any(),
                 torch.finfo(hidden_states.dtype).max - 1000,
@@ -827,6 +826,7 @@ class T5Block(nn.Module):
         do_cross_attention = self.is_decoder and encoder_hidden_states is not None
         if do_cross_attention:
             cross_attention_outputs = self.layer[1](
+                tracer,
                 hidden_states,
                 key_value_states=encoder_hidden_states,
                 attention_mask=encoder_attention_mask,
@@ -841,6 +841,7 @@ class T5Block(nn.Module):
 
             # clamp inf values to enable fp16 training
             if hidden_states.dtype == torch.float16:
+                tracer.vomit()
                 clamp_value = torch.where(
                     torch.isinf(hidden_states).any(),
                     torch.finfo(hidden_states.dtype).max - 1000,
@@ -849,13 +850,16 @@ class T5Block(nn.Module):
                 hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
 
             # Keep cross-attention outputs and relative position weights
-            attention_outputs = attention_outputs + cross_attention_outputs[2:]
+            attention_outputs_ = attention_outputs + cross_attention_outputs[2:]
+            tracer.add_op("torch.add", {"input": attention_outputs, "other": cross_attention_outputs}, {"output": attention_outputs_})
+            attention_outputs = attention_outputs_
 
         # Apply Feed Forward layer
-        hidden_states = self.layer[-1](hidden_states)
+        hidden_states = self.layer[-1](tracer, hidden_states)
 
         # clamp inf values to enable fp16 training
         if hidden_states.dtype == torch.float16:
+            tracer.vomit()
             clamp_value = torch.where(
                 torch.isinf(hidden_states).any(),
                 torch.finfo(hidden_states.dtype).max - 1000,
@@ -866,9 +870,14 @@ class T5Block(nn.Module):
         outputs = (hidden_states,)
 
         if use_cache:
-            outputs = outputs + (past_key_value,) + attention_outputs
+            x = outputs + (past_key_value,)
+            tracer.add_op("torch.add", {"input": outputs, "other": past_key_value}, {"output": x})
+            outputs = x + attention_outputs
+            tracer.add_op("torch.add", {"input": x, "other": attention_outputs}, {"output": outputs})
         else:
-            outputs = outputs + attention_outputs
+            outputs_ = outputs + attention_outputs
+            tracer.add_op("torch.add", {"input": outputs, "other": attention_outputs}, {"output": outputs_})
+            outputs = outputs_
 
         return outputs  # hidden-states, past_key_value, (self-attention position bias), (self-attention weights), (cross-attention position bias), (cross-attention weights)
 
