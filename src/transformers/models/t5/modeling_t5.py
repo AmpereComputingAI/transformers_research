@@ -244,18 +244,30 @@ class T5LayerNorm(nn.Module):
         self.weight = nn.Parameter(torch.ones(hidden_size))
         self.variance_epsilon = eps
 
-    def forward(self, hidden_states):
+    def forward(self, tracer, hidden_states):
         # T5 uses a layer_norm which only scales and doesn't shift, which is also known as Root Mean
         # Square Layer Normalization https://arxiv.org/abs/1910.07467 thus variance is calculated
         # w/o mean and there is no bias. Additionally we want to make sure that the accumulation for
         # half-precision inputs is done in fp32
 
-        variance = hidden_states.to(torch.float32).pow(2).mean(-1, keepdim=True)
-        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        x = hidden_states.to(torch.float32)
+        tracer.add_op("torch.Tensor.to", {"input": hidden_states, "dtype": torch.float32}, {"output": x})
+        y = x.pow(2)
+        tracer.add_op("torch.pow", {"input": x, "exponent": 2}, {"output": y})
+        variance = y.mean(-1, keepdim=True)
+        tracer.add_op("torch.mean", {"input": y, "dim": -1, "keepdim": True}, {"output": variance})
+        x = variance + self.variance_epsilon
+        tracer.add_op("torch.add", {"input": variance, "other": self.variance_epsilon}, {"output": x})
+        y = torch.rsqrt(x)
+        tracer.add_op("torch.rsqrt", {"input": x}, {"output": y})
+        hidden_states = hidden_states * y
+        tracer.add_op("torch.mul", {"input": hidden_states, "other": y}, {"output": hidden_states})
 
         # convert into half-precision if necessary
         if self.weight.dtype in [torch.float16, torch.bfloat16]:
-            hidden_states = hidden_states.to(self.weight.dtype)
+            hidden_states_ = hidden_states.to(self.weight.dtype)
+            tracer.add_op("torch.Tensor.to", {"input": hidden_states, "dtype": self.weight.dtype}, {"output": hidden_states_})
+            hidden_states = hidden_states_
 
         return self.weight * hidden_states
 
@@ -467,6 +479,7 @@ class T5Attention(nn.Module):
 
     def forward(
         self,
+        tracer,
         hidden_states,
         mask=None,
         key_value_states=None,
@@ -484,12 +497,23 @@ class T5Attention(nn.Module):
         # Input is (batch_size, seq_length, dim)
         # Mask is (batch_size, 1, 1, key_length) (non-causal encoder) or (batch_size, 1, seq_length, key_length) (causal decoder)
         batch_size, seq_length = hidden_states.shape[:2]
+        tracer.add_op("torch.Tensor.size", {"input": hidden_states}, {"output": hidden_states.shape})
 
         # if key_value_states are provided this layer is used as a cross-attention layer for the decoder
         is_cross_attention = key_value_states is not None
 
         query_states = self.q(hidden_states)
-        query_states = query_states.view(batch_size, -1, self.n_heads, self.key_value_proj_dim).transpose(1, 2)
+        tracer.add_op("torch.nn.Linear", {"input": hidden_states}, {"output": query_states},
+                      {"in_features": self.d_model, "out_features": self.inner_dim, "bias": False})
+        query_states_ = query_states.view(batch_size, -1, self.n_heads, self.key_value_proj_dim)
+        d = tracer.get_dict([batch_size, -1, self.n_heads, self.key_value_proj_dim])
+        d["input"] = query_states
+        tracer.add("torch.Tensor.view", d, {"output": query_states_})
+        query_states = query_states_.transpose(1, 2)
+        tracer.add("torch.Tensor.transpose", {"input": query_states_, "dim0": 1, "dim1": 2}, {"output": query_states})
+
+        tracer.summary()
+        DD
 
         if past_key_value is not None:
             is_updated = past_key_value.is_updated.get(self.layer_idx)
@@ -584,6 +608,7 @@ class T5LayerSelfAttention(nn.Module):
 
     def forward(
         self,
+        tracer,
         hidden_states,
         attention_mask=None,
         position_bias=None,
@@ -593,8 +618,9 @@ class T5LayerSelfAttention(nn.Module):
         output_attentions=False,
         cache_position=None,
     ):
-        normed_hidden_states = self.layer_norm(hidden_states)
+        normed_hidden_states = self.layer_norm(tracer, hidden_states)
         attention_output = self.SelfAttention(
+            tracer,
             normed_hidden_states,
             mask=attention_mask,
             position_bias=position_bias,
@@ -604,8 +630,10 @@ class T5LayerSelfAttention(nn.Module):
             output_attentions=output_attentions,
             cache_position=cache_position,
         )
-        hidden_states = hidden_states + self.dropout(attention_output[0])
-        outputs = (hidden_states,) + attention_output[1:]  # add attentions if we output them
+        hidden_states_ = hidden_states + self.dropout(attention_output[0])
+        tracer.add_op("torch.add", {"input": hidden_states, "other": attention_output}, {"output": hidden_states_})
+        outputs = (hidden_states_,) + attention_output[1:]  # add attentions if we output them
+        tracer.add_op("torch.add", {"input": hidden_states_, "other": attention_output}, {"output": outputs})
         return outputs
 
 
@@ -662,6 +690,7 @@ class T5Block(nn.Module):
 
     def forward(
         self,
+        tracer,
         hidden_states,
         attention_mask=None,
         position_bias=None,
@@ -677,6 +706,7 @@ class T5Block(nn.Module):
         cache_position=None,
     ):
         self_attention_outputs = self.layer[0](
+            tracer,
             hidden_states,
             attention_mask=attention_mask,
             position_bias=position_bias,
@@ -688,6 +718,8 @@ class T5Block(nn.Module):
         )
         hidden_states, past_key_value = self_attention_outputs[:2]
         attention_outputs = self_attention_outputs[2:]  # Keep self-attention outputs and relative position weights
+
+        dd
 
         # clamp inf values to enable fp16 training
         if hidden_states.dtype == torch.float16:
@@ -1100,9 +1132,6 @@ class T5Stack(T5PreTrainedModel):
         position_bias = None
         encoder_decoder_position_bias = None
 
-        tracer.summary()
-        ff
-
         hidden_states = self.dropout(inputs_embeds)
 
         for i, layer_module in enumerate(self.block):
@@ -1127,9 +1156,12 @@ class T5Stack(T5PreTrainedModel):
                 if cross_attn_layer_head_mask is not None:
                     cross_attn_layer_head_mask = cross_attn_layer_head_mask.to(hidden_states.device)
             if output_hidden_states:
-                all_hidden_states = all_hidden_states + (hidden_states,)
+                all_hidden_states_ = all_hidden_states + (hidden_states,)
+                tracer.add_op("torch.add", {"input": all_hidden_states, "other": hidden_states}, {"output": all_hidden_states_})
+                all_hidden_states = all_hidden_states_
 
             if self.gradient_checkpointing and self.training:
+                tracer.vomit()
                 layer_outputs = self._gradient_checkpointing_func(
                     layer_module.forward,
                     hidden_states,
@@ -1148,6 +1180,7 @@ class T5Stack(T5PreTrainedModel):
                 )
             else:
                 layer_outputs = layer_module(
+                    tracer,
                     hidden_states,
                     attention_mask=causal_mask,
                     position_bias=position_bias,
@@ -1162,6 +1195,9 @@ class T5Stack(T5PreTrainedModel):
                     return_dict=return_dict,
                     cache_position=cache_position,
                 )
+
+            tracer.summary()
+            ff
 
             # layer_outputs is a tuple with:
             # hidden-states, key-value-states, (self-attention position bias), (self-attention weights), (cross-attention position bias), (cross-attention weights)
