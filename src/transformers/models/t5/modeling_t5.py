@@ -513,7 +513,9 @@ class T5Attention(nn.Module):
             num_buckets=self.relative_attention_num_buckets,
             max_distance=self.relative_attention_max_distance,
         )
-        values = self.relative_attention_bias(tracer, relative_position_bucket)  # shape (query_length, key_length, num_heads)
+        values = self.relative_attention_bias(relative_position_bucket)  # shape (query_length, key_length, num_heads)
+        tracer.add_op("torch.nn.Embedding", {"input": relative_position_bucket}, {"output": values},
+                      {"num_embeddings": self.relative_attention_num_buckets, "embedding_dim": self.n_heads})
         x = values.permute([2, 0, 1])  # shape (1, num_heads, query_length, key_length)
         tracer.add_op("torch.Tensor.permute", {"input": values, "dims": [2, 0, 1]}, {"output": x})
         values = x.unsqueeze(0)
