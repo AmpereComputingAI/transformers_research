@@ -545,16 +545,11 @@ class PreTrainedTokenizerFast(PreTrainedTokenizerBase):
         if self._tokenizer.encode_special_tokens != split_special_tokens:
             self._tokenizer.encode_special_tokens = split_special_tokens
 
-        print(self._tokenizer.encode_batch)
-
         encodings = self._tokenizer.encode_batch(
-            tracer,
             batch_text_or_text_pairs,
             add_special_tokens=add_special_tokens,
             is_pretokenized=is_split_into_words,
         )
-
-        ff
 
         # Convert encoding to dict
         # `Tokens` has type: Tuple[
@@ -598,7 +593,7 @@ class PreTrainedTokenizerFast(PreTrainedTokenizerBase):
 
         for input_ids in sanitized_tokens["input_ids"]:
             self._eventual_warn_about_too_long_sequence(input_ids, max_length, verbose)
-        return BatchEncoding(sanitized_tokens, sanitized_encodings, tensor_type=return_tensors)
+        return BatchEncoding(tracer, sanitized_tokens, sanitized_encodings, tensor_type=return_tensors)
 
     def _encode_plus(
         self,
