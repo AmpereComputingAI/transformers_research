@@ -508,9 +508,9 @@ class T5Attention(nn.Module):
         query_states_ = query_states.view(batch_size, -1, self.n_heads, self.key_value_proj_dim)
         d = tracer.get_dict([batch_size, -1, self.n_heads, self.key_value_proj_dim])
         d["input"] = query_states
-        tracer.add("torch.Tensor.view", d, {"output": query_states_})
+        tracer.add_op("torch.Tensor.view", d, {"output": query_states_})
         query_states = query_states_.transpose(1, 2)
-        tracer.add("torch.Tensor.transpose", {"input": query_states_, "dim0": 1, "dim1": 2}, {"output": query_states})
+        tracer.add_op("torch.Tensor.transpose", {"input": query_states_, "dim0": 1, "dim1": 2}, {"output": query_states})
 
         tracer.summary()
         DD
