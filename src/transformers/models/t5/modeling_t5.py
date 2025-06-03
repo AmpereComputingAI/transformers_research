@@ -639,36 +639,54 @@ class T5Attention(nn.Module):
                 tracer.add_op("torch.add", {"input": position_bias, "other": causal_mask}, {"output": position_bias_})
                 position_bias = position_bias_
 
-        tracer.summary()
-        DD
-
         if self.pruned_heads:
             mask = torch.ones(position_bias.shape[1])
+            tracer.add_op("torch.Tensor.size", {"input": position_bias}, {"output": position_bias.shape})
+            tracer.add_op("torch.ones", {"0": position_bias.shape[1]}, {"output": mask})
             mask[list(self.pruned_heads)] = 0
             position_bias_masked = position_bias[:, mask.bool()]
+            tracer.add_op("torch.Tensor.to", {"input": mask, "dtype": torch.bool}, {"output": mask.bool()})
         else:
             position_bias_masked = position_bias
 
-        scores += position_bias_masked
+        scores_ = scores + position_bias_masked
+        tracer.add_op("torch.add", {"input": scores, "other": position_bias_masked}, {"output": scores_})
+        scores = scores_
 
         # (batch_size, n_heads, seq_length, key_length)
-        attn_weights = nn.functional.softmax(scores.float(), dim=-1).type_as(scores)
+        x = scores.float()
+        tracer.add_op("torch.Tensor.to", {"input": scores, "dtype": torch.float32}, {"output": x})
+        y = nn.functional.softmax(x, dim=-1)
+        tracer.add_op("torch.nn.functional.softmax", {"input": x, "dim": -1}, {"output": y})
+        attn_weights = y.type_as(scores)
+        tracer.add_op("torch.Tensor.type_as", {"input": scores}, {"output": attn_weights})
         attn_weights = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
 
         # Mask heads if we want to
         if layer_head_mask is not None:
-            attn_weights = attn_weights * layer_head_mask
+            attn_weights_ = attn_weights * layer_head_mask
+            tracer.add_op("torch.mul", {"input": attn_weights, "other": layer_head_mask}, {"output": attn_weights_})
+            attn_weights = attn_weights_
 
         attn_output = torch.matmul(attn_weights, value_states)
+        tracer.add_op("torch.matmul", {"input": attn_weights, "other": value_states}, {"output": attn_output})
 
-        attn_output = attn_output.transpose(1, 2).contiguous()
-        attn_output = attn_output.view(batch_size, -1, self.inner_dim)
-        attn_output = self.o(attn_output)
-
+        attn_output_ = attn_output.transpose(1, 2).contiguous()
+        tracer.add_op("torch.Tensor.transpose", {"input": attn_output, "dim0": 1, "dim1": 2}, {"output": attn_output_})
+        attn_output = attn_output_.view(batch_size, -1, self.inner_dim)
+        d = tracer.get_dict([batch_size, -1, self.inner_dim])
+        d["input"] = attn_output_
+        tracer.add_op("torch.Tensor.view", d, {"output": attn_output})
+        attn_output_ = self.o(attn_output)
+        tracer.add_op("torch.nn.Linear", {"input": attn_output}, {"output": attn_output_},
+                      {"in_features": self.inner_dim, "out_features": self.d_model, "bias": False})
+        attn_output = attn_output_
         outputs = (attn_output, past_key_value, position_bias)
 
         if output_attentions:
-            outputs = outputs + (attn_weights,)
+            outputs_ = outputs + (attn_weights,)
+            tracer.add_op("torch.add", {"input": outputs, "other": attn_weights}, {"output": outputs_})
+            outputs = outputs_
         return outputs
 
 
