@@ -950,6 +950,7 @@ class T5Stack(T5PreTrainedModel):
 
     def forward(
         self,
+        tracer,
         input_ids=None,
         attention_mask=None,
         encoder_hidden_states=None,
@@ -982,9 +983,15 @@ class T5Stack(T5PreTrainedModel):
             )
         elif input_ids is not None:
             input_shape = input_ids.size()
-            input_ids = input_ids.view(-1, input_shape[-1])
+            tracer.add_op("torch.Tensor.size", {"input": input_ids}, {"output": input_shape})
+            input_ids_ = input_ids.view(-1, input_shape[-1])
+            input_dict = tracer.get_dict([-1, input_shape[-1]])
+            input_dict["input"] = input_ids
+            tracer.add_op("torch.Tensor.view", input_dict, {"output": input_ids_})
+            input_ids = input_ids_
         elif inputs_embeds is not None:
             input_shape = inputs_embeds.size()[:-1]
+            tracer.add_op("torch.Tensor.size", {"input": inputs_embeds}, {"output": input_shape})
         else:
             err_msg_prefix = "decoder_" if self.is_decoder else ""
             raise ValueError(f"You have to specify either {err_msg_prefix}input_ids or {err_msg_prefix}inputs_embeds")
@@ -999,13 +1006,17 @@ class T5Stack(T5PreTrainedModel):
         if inputs_embeds is None:
             if self.embed_tokens is None:
                 raise ValueError("You have to initialize the model with valid token embeddings")
-            inputs_embeds = self.embed_tokens(input_ids)
+            print(self.embed_tokens)
+            inputs_embeds = self.embed_tokens(tracer, input_ids)
+            f
 
         batch_size, seq_length = input_shape
 
         if use_cache is True:
             if not self.is_decoder:
                 raise ValueError(f"`use_cache` can only be set to `True` if {self} is used as a decoder")
+
+        ff
 
         # initialize past_key_values
         return_legacy_cache = False
@@ -1973,6 +1984,7 @@ class T5EncoderModel(T5PreTrainedModel):
     @auto_docstring
     def forward(
         self,
+        tracer,
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.FloatTensor] = None,
         head_mask: Optional[torch.FloatTensor] = None,
@@ -2007,6 +2019,7 @@ class T5EncoderModel(T5PreTrainedModel):
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         encoder_outputs = self.encoder(
+            tracer,
             input_ids=input_ids,
             attention_mask=attention_mask,
             inputs_embeds=inputs_embeds,
