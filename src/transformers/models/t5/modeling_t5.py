@@ -1008,7 +1008,7 @@ class T5Stack(T5PreTrainedModel):
         if inputs_embeds is None:
             if self.embed_tokens is None:
                 raise ValueError("You have to initialize the model with valid token embeddings")
-            inputs_embeds = self.embed_tokens(tracer, input_ids)
+            inputs_embeds = self.embed_tokens(input_ids)
             tracer.add_op("torch.nn.Embedding", {"input": input_ids, "num_embeddings": self.x, "embedding_dim": self.y},
                           {"output": inputs_embeds})
 
