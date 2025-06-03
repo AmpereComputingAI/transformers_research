@@ -1242,11 +1242,12 @@ class T5Stack(T5PreTrainedModel):
         # For SDPA, when possible, we will rely on its `is_causal` argument instead of its `attn_mask` argument, in
         # order to dispatch on Flash Attention 2. This feature is not compatible with static cache, as SDPA will fail
         # to infer the attention mask.
-        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
+        past_seen_tokens = past_key_values.get_seq_length(tracer) if past_key_values is not None else 0
         using_compilable_cache = past_key_values.is_compileable if past_key_values is not None else False
 
         # When output attentions is True, sdpa implementation's forward method calls the eager implementation's forward
         if self.config._attn_implementation == "sdpa" and not using_compilable_cache and not output_attentions:
+            tracer.vomit()
             if AttentionMaskConverter._ignore_causal_mask_sdpa(
                 attention_mask,
                 inputs_embeds=input_tensor,
@@ -1257,8 +1258,9 @@ class T5Stack(T5PreTrainedModel):
 
         dtype = input_tensor.dtype
         sequence_length = input_tensor.shape[1]
+        tracer.add_op("torch.Tensor.size", {"input": input_tensor}, {"output": sequence_length})
         if using_compilable_cache:
-            target_length = past_key_values.get_max_cache_shape()
+            target_length = past_key_values.get_max_cache_shape(tracer)
         else:
             target_length = (
                 attention_mask.shape[-1]
@@ -1268,6 +1270,7 @@ class T5Stack(T5PreTrainedModel):
 
         # In case the provided `attention` mask is 2D, we generate a causal mask here (4D).
         causal_mask = self._prepare_4d_causal_attention_mask_with_cache_position(
+            tracer,
             attention_mask,
             sequence_length=sequence_length,
             target_length=target_length,
@@ -1285,6 +1288,7 @@ class T5Stack(T5PreTrainedModel):
             # Attend to all tokens in fully masked rows in the causal_mask, for example the relevant first rows when
             # using left padding. This is required by F.scaled_dot_product_attention memory-efficient attention path.
             # Details: https://github.com/pytorch/pytorch/issues/110213
+            tracer.vomit()
             min_dtype = torch.finfo(dtype).min
             causal_mask = AttentionMaskConverter._unmask_unattended(causal_mask, min_dtype)
 
@@ -1293,6 +1297,7 @@ class T5Stack(T5PreTrainedModel):
     @staticmethod
     # Copied from transformers.models.gptj.modeling_gptj.GPTJModel._prepare_4d_causal_attention_mask_with_cache_position
     def _prepare_4d_causal_attention_mask_with_cache_position(
+        tracer,
         attention_mask: torch.Tensor,
         sequence_length: int,
         target_length: int,
@@ -1329,11 +1334,29 @@ class T5Stack(T5PreTrainedModel):
             causal_mask = torch.full(
                 (sequence_length, target_length), fill_value=min_dtype, dtype=dtype, device=cache_position.device
             )
+            tracer.add_op("torch.full",
+                          {"0": sequence_length, "1": target_length, "fill_value": min_dtype, "dtype": dtype},
+                          {"output": causal_mask})
             if sequence_length != 1:
-                causal_mask = torch.triu(causal_mask, diagonal=1)
-            causal_mask *= torch.arange(target_length, device=cache_position.device) > cache_position.reshape(-1, 1)
-            causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
+                causal_mask_ = torch.triu(causal_mask, diagonal=1)
+                tracer.add_op("torch.triu", {"input": causal_mask, "diagonal": 1}, {"output": causal_mask_})
+                causal_mask = causal_mask_
+            x = torch.arange(target_length, device=cache_position.device)
+            tracer.add_op("torch.arange", {"end": target_length}, {"output": x})
+            z = cache_position.reshape(-1, 1)
+            tracer.add_op("torch.Tensor.reshape", {"input": cache_position, "0": -1, "1": 1}, {"output": z})
+            y = x > z
+            tracer.add_op("torch.lt", {"input": z, "other": x}, {"output": y})
+            causal_mask_ = causal_mask * y
+            tracer.add_op("torch.mul", {"input": causal_mask, "other": y}, {"output": causal_mask_})
+            causal_mask = causal_mask_
+            causal_mask_ = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
+            input_dict = tracer.get_dict([batch_size, 1, -1, -1])
+            input_dict["input"] = causal_mask
+            tracer.add_op("torch.Tensor.expand", input_dict, {"output": causal_mask_})
+            causal_mask = causal_mask_
             if attention_mask is not None:
+                tracer.vomit()
                 causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
                 mask_length = attention_mask.shape[-1]
                 padding_mask = causal_mask[:, :, :, :mask_length] + attention_mask[:, None, None, :].to(
