@@ -879,7 +879,7 @@ class T5PreTrainedModel(PreTrainedModel):
 
 
 class T5Stack(T5PreTrainedModel):
-    def __init__(self, config, embed_tokens=None, x, y):
+    def __init__(self, config, embed_tokens=None, x=None, y=None):
         super().__init__(config)
 
         self.embed_tokens = embed_tokens
