@@ -1075,30 +1075,33 @@ class T5Stack(T5PreTrainedModel):
         else:
             causal_mask = None
 
-        tracer.summary()
-        ff
-
         # If a 2D or 3D attention mask is provided for the cross-attention
         # we need to make broadcastable to [batch_size, num_heads, seq_length, seq_length]
         if self.is_decoder and encoder_hidden_states is not None:
             encoder_batch_size, encoder_sequence_length, _ = encoder_hidden_states.size()
+            tracer.add_op("torch.Tensor.size", {"input": encoder_hidden_states}, {"output": encoder_hidden_states.size()})
             encoder_hidden_shape = (encoder_batch_size, encoder_sequence_length)
             if encoder_attention_mask is None:
                 encoder_attention_mask = torch.ones(
                     encoder_hidden_shape, device=inputs_embeds.device, dtype=torch.long
                 )
-            encoder_extended_attention_mask = self.invert_attention_mask(encoder_attention_mask)
+                tracer.add_op("torch.ones", {"0": encoder_batch_size, "1": encoder_sequence_length, "dtype": torch.long},
+                              {"output": encoder_attention_mask})
+            encoder_extended_attention_mask = self.invert_attention_mask(tracer, encoder_attention_mask)
         else:
             encoder_extended_attention_mask = None
 
         # Prepare head mask if needed
-        head_mask = self.get_head_mask(head_mask, self.config.num_layers)
-        cross_attn_head_mask = self.get_head_mask(cross_attn_head_mask, self.config.num_layers)
+        head_mask = self.get_head_mask(tracer, head_mask, self.config.num_layers)
+        cross_attn_head_mask = self.get_head_mask(tracer, cross_attn_head_mask, self.config.num_layers)
         all_hidden_states = () if output_hidden_states else None
         all_attentions = () if output_attentions else None
         all_cross_attentions = () if (output_attentions and self.is_decoder) else None
         position_bias = None
         encoder_decoder_position_bias = None
+
+        tracer.summary()
+        ff
 
         hidden_states = self.dropout(inputs_embeds)
 
