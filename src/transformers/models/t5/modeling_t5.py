@@ -1041,22 +1041,23 @@ class T5Stack(T5PreTrainedModel):
             # it messes indexing later in decoder-stack because cache object is modified in-place
             past_key_values = None
 
-        tracer.summary()
-        ff
-
-        past_key_values_length = past_key_values.get_seq_length() if past_key_values is not None else 0
+        past_key_values_length = past_key_values.get_seq_length(tracer) if past_key_values is not None else 0
         if cache_position is None:
             cache_position = torch.arange(
                 past_key_values_length, past_key_values_length + seq_length, device=inputs_embeds.device
             )
+            tracer.add_op("torch.arange", {"start": past_key_values_length, "end": past_key_values_length + seq_length},
+                          {"output": cache_position})
 
         if attention_mask is None and not is_torchdynamo_compiling():
             # required mask seq length can be calculated via length of past cache
             mask_seq_length = past_key_values_length + seq_length
             attention_mask = torch.ones(batch_size, mask_seq_length, device=inputs_embeds.device)
+            tracer.add_op("torch.ones", tracer.get_dict([batch_size, mask_seq_length]), {"output": attention_mask})
 
         if self.config.is_decoder:
             causal_mask = self._update_causal_mask(
+                tracer,
                 attention_mask,
                 inputs_embeds,
                 cache_position,
@@ -1065,10 +1066,17 @@ class T5Stack(T5PreTrainedModel):
             )
         elif attention_mask is not None:
             causal_mask = attention_mask[:, None, None, :]
-            causal_mask = causal_mask.to(dtype=inputs_embeds.dtype)
-            causal_mask = (1.0 - causal_mask) * torch.finfo(inputs_embeds.dtype).min
+            causal_mask_ = causal_mask.to(dtype=inputs_embeds.dtype)
+            tracer.add_op("torch.Tensor.to", {"input": causal_mask, "dtype": inputs_embeds.dtype}, {"output": causal_mask_})
+            x = 1.0 - causal_mask_
+            tracer.add_op("torch.sub", {"input": 1.0, "other": causal_mask_}, {"output": x})
+            causal_mask = x * torch.finfo(inputs_embeds.dtype).min
+            tracer.add_op("torch.mul", {"input": x, "other": torch.finfo(inputs_embeds.dtype).min}, {"output": causal_mask})
         else:
             causal_mask = None
+
+        tracer.summary()
+        ff
 
         # If a 2D or 3D attention mask is provided for the cross-attention
         # we need to make broadcastable to [batch_size, num_heads, seq_length, seq_length]
@@ -1213,6 +1221,7 @@ class T5Stack(T5PreTrainedModel):
     # Copied from transformers.models.gptj.modeling_gptj.GPTJModel._update_causal_mask
     def _update_causal_mask(
         self,
+        tracer,
         attention_mask: Union[torch.Tensor, "BlockMask"],
         input_tensor: torch.Tensor,
         cache_position: torch.Tensor,
@@ -1220,10 +1229,12 @@ class T5Stack(T5PreTrainedModel):
         output_attentions: bool = False,
     ):
         if self.config._attn_implementation == "flash_attention_2":
+            tracer.vomit()
             if attention_mask is not None and (attention_mask == 0.0).any():
                 return attention_mask
             return None
         if self.config._attn_implementation == "flex_attention":
+            tracer.vomit()
             if isinstance(attention_mask, torch.Tensor):
                 attention_mask = make_flex_block_causal_mask(attention_mask)
             return attention_mask
