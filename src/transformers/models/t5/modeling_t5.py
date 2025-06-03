@@ -512,9 +512,6 @@ class T5Attention(nn.Module):
         query_states = query_states_.transpose(1, 2)
         tracer.add_op("torch.Tensor.transpose", {"input": query_states_, "dim0": 1, "dim1": 2}, {"output": query_states})
 
-        tracer.summary()
-        DD
-
         if past_key_value is not None:
             is_updated = past_key_value.is_updated.get(self.layer_idx)
             if is_cross_attention:
@@ -530,19 +527,41 @@ class T5Attention(nn.Module):
             value_states = curr_past_key_value.value_cache[self.layer_idx]
         else:
             key_states = self.k(current_states)
+            tracer.add_op("torch.nn.Linear", {"input": current_states}, {"output": key_states},
+                          {"in_features": self.d_model, "out_features": self.inner_dim, "bias": False})
             value_states = self.v(current_states)
-            key_states = key_states.view(batch_size, -1, self.n_heads, self.key_value_proj_dim).transpose(1, 2)
-            value_states = value_states.view(batch_size, -1, self.n_heads, self.key_value_proj_dim).transpose(1, 2)
+            tracer.add_op("torch.nn.Linear", {"input": current_states}, {"output": value_states},
+                          {"in_features": self.d_model, "out_features": self.inner_dim, "bias": False})
+
+            x = key_states.view(batch_size, -1, self.n_heads, self.key_value_proj_dim)
+            d = tracer.get_dict([batch_size, -1, self.n_heads, self.key_value_proj_dim])
+            d["input"] = key_states
+            tracer.add_op("torch.Tensor.view", d, {"output": x})
+            key_states = x.transpose(1, 2)
+            tracer.add_op("torch.Tensor.transpose", {"input": x, "dim0": 1, "dim1": 2},
+                          {"output": key_states})
+
+            x = value_states.view(batch_size, -1, self.n_heads, self.key_value_proj_dim)
+            d = tracer.get_dict([batch_size, -1, self.n_heads, self.key_value_proj_dim])
+            d["input"] = value_states
+            tracer.add_op("torch.Tensor.view", d, {"output": x})
+            value_states = x.transpose(1, 2)
+            tracer.add_op("torch.Tensor.transpose", {"input": x, "dim0": 1, "dim1": 2},
+                          {"output": value_states})
 
             if past_key_value is not None:
                 # save all key/value_states to cache to be re-used for fast auto-regressive generation
                 cache_position = cache_position if not is_cross_attention else None
+                print(curr_past_key_value)
                 key_states, value_states = curr_past_key_value.update(
-                    key_states, value_states, self.layer_idx, {"cache_position": cache_position}
+                    tracer, key_states, value_states, self.layer_idx, {"cache_position": cache_position}
                 )
                 # set flag that curr layer for cross-attn is already updated so we can re-use in subsequent calls
                 if is_cross_attention:
                     past_key_value.is_updated[self.layer_idx] = True
+
+        tracer.summary()
+        DD
 
         # compute scores, equivalent of torch.einsum("bnqd,bnkd->bnqk", query_states, key_states), compatible with onnx op>9
         scores = torch.matmul(query_states, key_states.transpose(3, 2))
