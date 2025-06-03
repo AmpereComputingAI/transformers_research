@@ -618,7 +618,8 @@ class T5LayerSelfAttention(nn.Module):
         output_attentions=False,
         cache_position=None,
     ):
-        normed_hidden_states = self.layer_norm(tracer, hidden_states)
+        normed_hidden_states = self.layer_norm(hidden_states)
+        tracer.add_op("apex.normalization.FusedRMSNorm", {"input": hidden_states}, {"output": normed_hidden_states})
         attention_output = self.SelfAttention(
             tracer,
             normed_hidden_states,
