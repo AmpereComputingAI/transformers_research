@@ -1338,7 +1338,9 @@ class T5Stack(T5PreTrainedModel):
                     if i == v[-1] and "cuda:" + str(k) != self.last_device:
                         hidden_states = hidden_states.to("cuda:" + str(k + 1))
 
-        hidden_states = self.final_layer_norm(tracer, hidden_states)
+        hidden_states_ = self.final_layer_norm(hidden_states)
+        tracer.add_op("apex.normalization.FusedRMSNorm", {"input": hidden_states}, {"output": hidden_states_})
+        hidden_states = hidden_states_
         hidden_states = self.dropout(hidden_states)
 
         # Add last layer
