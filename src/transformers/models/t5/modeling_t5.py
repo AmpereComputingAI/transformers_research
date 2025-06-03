@@ -1313,13 +1313,12 @@ class T5Stack(T5PreTrainedModel):
                     cache_position=cache_position,
                 )
 
-            tracer.summary()
-            ff
-
             # layer_outputs is a tuple with:
             # hidden-states, key-value-states, (self-attention position bias), (self-attention weights), (cross-attention position bias), (cross-attention weights)
             if use_cache is False:
                 layer_outputs = layer_outputs[:1] + (None,) + layer_outputs[1:]
+                print(layer_outputs)
+                fd
 
             hidden_states, next_decoder_cache = layer_outputs[:2]
 
@@ -1332,6 +1331,8 @@ class T5Stack(T5PreTrainedModel):
 
             if output_attentions:
                 all_attentions = all_attentions + (layer_outputs[3],)
+                print(all_attentions)
+                fd
                 if self.is_decoder:
                     all_cross_attentions = all_cross_attentions + (layer_outputs[5],)
 
@@ -1340,6 +1341,9 @@ class T5Stack(T5PreTrainedModel):
                 for k, v in self.device_map.items():
                     if i == v[-1] and "cuda:" + str(k) != self.last_device:
                         hidden_states = hidden_states.to("cuda:" + str(k + 1))
+
+        tracer.summary()
+        ff
 
         hidden_states = self.final_layer_norm(hidden_states)
         hidden_states = self.dropout(hidden_states)
