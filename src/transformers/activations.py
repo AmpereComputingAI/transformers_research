@@ -43,8 +43,25 @@ class NewGELUActivation(nn.Module):
     the Gaussian Error Linear Units paper: https://arxiv.org/abs/1606.08415
     """
 
-    def forward(self, input: Tensor) -> Tensor:
-        return 0.5 * input * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (input + 0.044715 * torch.pow(input, 3.0))))
+    def forward(self, tracer, input: Tensor) -> Tensor:
+        x = math.sqrt(2.0 / math.pi)
+        y = torch.pow(input, 3.0)
+        tracer.add_op("torch.pow", {"input": input, "exponent": 3.0}, {"output": y})
+        m = 0.044715 * y
+        tracer.add_op("torch.mul", {"input": 0.044715, "other": y}, {"output": m})
+        y = input + m
+        tracer.add_op("torch.add", {"input": input, "other": m}, {"output": y})
+        m = x * y
+        tracer.add_op("torch.mul", {"input": x, "other": y}, {"output": m})
+        y = torch.tanh(m)
+        tracer.add_op("torch.tanh", {"input": m}, {"output": y})
+        m = 1.0 + y
+        tracer.add_op("torch.add", {"input": 1.0, "other": y}, {"output": m})
+        y = input * m
+        tracer.add_op("torch.mul", {"input": input, "other": m}, {"output": y})
+        m = 0.5 * y
+        tracer.add_op("torch.mul", {"input": 0.5, "other": y}, {"output": m})
+        return m
 
 
 class GELUActivation(nn.Module):

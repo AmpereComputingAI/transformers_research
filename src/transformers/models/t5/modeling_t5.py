@@ -314,15 +314,23 @@ class T5DenseGatedActDense(nn.Module):
     def __init__(self, config: T5Config):
         super().__init__()
         self.wi_0 = nn.Linear(config.d_model, config.d_ff, bias=False)
+        self.x = config.d_model
+        self.y = config.d_ff
         self.wi_1 = nn.Linear(config.d_model, config.d_ff, bias=False)
         self.wo = nn.Linear(config.d_ff, config.d_model, bias=False)
         self.dropout = nn.Dropout(config.dropout_rate)
         self.act = ACT2FN[config.dense_act_fn]
 
-    def forward(self, hidden_states):
-        hidden_gelu = self.act(self.wi_0(hidden_states))
+    def forward(self, tracer, hidden_states):
+        x = self.wi_0(hidden_states)
+        tracer.add_op("torch.nn.Linear", {"input": hidden_states}, {"output": x},
+                   {"in_features": self.x, "out_features": self.y, "bias": False})
+        hidden_gelu = self.act(tracer, x)
         hidden_linear = self.wi_1(hidden_states)
+        tracer.add_op("torch.nn.Linear", {"input": hidden_states}, {"output": hidden_linear},
+                   {"in_features": self.x, "out_features": self.y, "bias": False})
         hidden_states = hidden_gelu * hidden_linear
+        tracer.add_op("torch.mul", {"input": hidden_gelu, "other": hidden_linear}, {"output": hidden_states})
         hidden_states = self.dropout(hidden_states)
 
         # To make 8bit quantization work for google/flan-t5-xxl, self.wo is kept in float32.
@@ -333,10 +341,14 @@ class T5DenseGatedActDense(nn.Module):
             and hidden_states.dtype != self.wo.weight.dtype
             and self.wo.weight.dtype != torch.int8
         ):
-            hidden_states = hidden_states.to(self.wo.weight.dtype)
+            hidden_states_ = hidden_states.to(self.wo.weight.dtype)
+            tracer.add_op("torch.Tensor.to", {"input": hidden_states, "dtype": self.wo.weight.dtype}, {"output": hidden_states_})
+            hidden_states = hidden_states_
 
-        hidden_states = self.wo(hidden_states)
-        return hidden_states
+        hidden_states_ = self.wo(hidden_states)
+        tracer.add_op("torch.nn.Linear", {"input": hidden_states}, {"output": hidden_states_},
+                      {"in_features": self.y, "out_features": self.x, "bias": False})
+        return hidden_states_
 
 
 class T5LayerFF(nn.Module):
