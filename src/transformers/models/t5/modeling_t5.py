@@ -410,7 +410,7 @@ class T5Attention(nn.Module):
         self.pruned_heads = self.pruned_heads.union(heads)
 
     @staticmethod
-    def _relative_position_bucket(relative_position, bidirectional=True, num_buckets=32, max_distance=128):
+    def _relative_position_bucket(tracer, relative_position, bidirectional=True, num_buckets=32, max_distance=128):
         """
         Adapted from Mesh Tensorflow:
         https://github.com/tensorflow/mesh/blob/0cb87fe07da627bf0b7e60475d59f95ed6b5be3d/mesh_tensorflow/transformer/transformer_layers.py#L593
@@ -434,47 +434,90 @@ class T5Attention(nn.Module):
         relative_buckets = 0
         if bidirectional:
             num_buckets //= 2
-            relative_buckets += (relative_position > 0).to(torch.long) * num_buckets
-            relative_position = torch.abs(relative_position)
+            x = relative_position > 0
+            tracer.add_op("torch.lt", {"input": 0, "other": relative_position}, {"output": x})
+            y = x.to(torch.long)
+            tracer.add_op("torch.Tensor.to", {"input": x, "dtype": torch.long}, {"output": y})
+            x = y * num_buckets
+            tracer.add_op("torch.mul", {"input": y, "other": num_buckets}, {"output": x})
+            y = relative_buckets + x
+            tracer.add_op("torch.add", {"input": relative_buckets, "other": x}, {"output": y})
+            relative_buckets = y
+            relative_position_ = torch.abs(relative_position)
+            tracer.add_op("torch.abs", {"input": relative_position}, {"output": relative_position_})
+            relative_position = relative_position_
         else:
-            relative_position = -torch.min(relative_position, torch.zeros_like(relative_position))
+            x = torch.zeros_like(relative_position)
+            tracer.add_op("torch.zeros_like", {"input": relative_position}, {"output": x})
+            y = torch.min(relative_position, x)
+            tracer.add_op("torch.min", {"input": relative_position, "other": x}, {"output": y})
+            relative_position = -y
+            tracer.add_op("torch.sub", {"input": 0., "other": y}, {"output": relative_position})
         # now relative_position is in the range [0, inf)
 
         # half of the buckets are for exact increments in positions
         max_exact = num_buckets // 2
         is_small = relative_position < max_exact
+        tracer.add_op("torch.lt", {"input": relative_position, "other": max_exact}, {"output": is_small})
 
         # The other half of the buckets are for logarithmically bigger bins in positions up to max_distance
-        relative_position_if_large = max_exact + (
-            torch.log(relative_position.float() / max_exact)
-            / math.log(max_distance / max_exact)
-            * (num_buckets - max_exact)
-        ).to(torch.long)
-        relative_position_if_large = torch.min(
-            relative_position_if_large, torch.full_like(relative_position_if_large, num_buckets - 1)
+        x = relative_position.float()
+        tracer.add_op("torch.Tensor.to", {"input": relative_position, "dtype": torch.float32}, {"output": x})
+        y = x / max_exact
+        tracer.add_op("torch.div", {"input": x, "other": max_exact}, {"output": y})
+        x = torch.log(y)
+        tracer.add_op("torch.log", {"input": y}, {"output": x})
+        y = math.log(max_distance / max_exact)
+        z = (num_buckets - max_exact)
+        a = x / y
+        tracer.add_op("torch.div", {"input": x, "other": y}, {"output": a})
+        m = a * z
+        tracer.add_op("torch.mul", {"input": a, "other": z}, {"output": m})
+        a = m.to(torch.long)
+        tracer.add_op("torch.Tensor.to", {"input": m, "dtype": torch.long}, {"output": a})
+        relative_position_if_large = max_exact + a
+        tracer.add_op("torch.add", {"input": max_exact, "other": a}, {"output": relative_position_if_large})
+        a = torch.full_like(relative_position_if_large, num_buckets - 1)
+        tracer.add_op("torch.full_like", {"input": relative_position_if_large, "fill_value": num_buckets - 1},
+                      {"output": a})
+        relative_position_if_large_ = torch.min(
+            relative_position_if_large, a
         )
+        tracer.add_op("torch.min", {"input": relative_position_if_large, "other": a}, {"output": relative_position_if_large_})
+        relative_position_if_large = relative_position_if_large_
 
-        relative_buckets += torch.where(is_small, relative_position, relative_position_if_large)
-        return relative_buckets
+        a = torch.where(is_small, relative_position, relative_position_if_large)
+        tracer.add_op("torch.where", {"condition": is_small, "input": relative_position, "other": relative_position_if_large},
+                      {"output": a})
+        relative_buckets_ = relative_buckets + a
+        tracer.add_op("torch.add", {"input": relative_buckets, "other": a}, {"output": relative_buckets_})
+        return relative_buckets_
 
-    def compute_bias(self, query_length, key_length, device=None, cache_position=None):
+    def compute_bias(self, tracer, query_length, key_length, device=None, cache_position=None):
         """Compute binned relative position bias"""
         if device is None:
             device = self.relative_attention_bias.weight.device
         if cache_position is None:
             context_position = torch.arange(query_length, dtype=torch.long, device=device)[:, None]
+            tracer.add_op("torch.arange", {"end": query_length, "dtype": torch.long}, {"output": context_position})
         else:
             context_position = cache_position[:, None].to(device)
         memory_position = torch.arange(key_length, dtype=torch.long, device=device)[None, :]
+        tracer.add_op("torch.arange", {"end": key_length, "dtype": torch.long}, {"output": memory_position})
         relative_position = memory_position - context_position  # shape (query_length, key_length)
+        tracer.add_op("torch.sub", {"input": memory_position, "other": context_position}, {"output": relative_position})
         relative_position_bucket = self._relative_position_bucket(
+            tracer,
             relative_position,  # shape (query_length, key_length)
             bidirectional=(not self.is_decoder),
             num_buckets=self.relative_attention_num_buckets,
             max_distance=self.relative_attention_max_distance,
         )
-        values = self.relative_attention_bias(relative_position_bucket)  # shape (query_length, key_length, num_heads)
-        values = values.permute([2, 0, 1]).unsqueeze(0)  # shape (1, num_heads, query_length, key_length)
+        values = self.relative_attention_bias(tracer, relative_position_bucket)  # shape (query_length, key_length, num_heads)
+        x = values.permute([2, 0, 1])  # shape (1, num_heads, query_length, key_length)
+        tracer.add_op("torch.Tensor.permute", {"input": values, "dims": [2, 0, 1]}, {"output": x})
+        values = x.unsqueeze(0)
+        tracer.add_op("torch.Tensor.unsqueeze", {"input": x, "dim": 0}, {"output": values})
         return values
 
     def forward(
@@ -552,7 +595,7 @@ class T5Attention(nn.Module):
             if past_key_value is not None:
                 # save all key/value_states to cache to be re-used for fast auto-regressive generation
                 cache_position = cache_position if not is_cross_attention else None
-                print(curr_past_key_value)
+                tracer.vomit()
                 key_states, value_states = curr_past_key_value.update(
                     tracer, key_states, value_states, self.layer_idx, {"cache_position": cache_position}
                 )
@@ -560,31 +603,42 @@ class T5Attention(nn.Module):
                 if is_cross_attention:
                     past_key_value.is_updated[self.layer_idx] = True
 
-        tracer.summary()
-        DD
-
         # compute scores, equivalent of torch.einsum("bnqd,bnkd->bnqk", query_states, key_states), compatible with onnx op>9
-        scores = torch.matmul(query_states, key_states.transpose(3, 2))
+        x = key_states.transpose(3, 2)
+        tracer.add_op("torch.Tensor.transpose", {"input": key_states, "dim0": 3, "dim1": 2},
+                      {"output": x})
+        scores = torch.matmul(query_states, x)
+        tracer.add_op("torch.matmul", {"input": query_states, "other": x}, {"output": scores})
 
         if position_bias is None:
             key_length = key_states.shape[-2]
+            tracer.add_op("torch.Tensor.size", {"input": key_states}, {"output": key_states.shape})
             # cache position is 0-indexed so we add 1 to get the real length of queries (aka with past)
             real_seq_length = query_length if query_length is not None else cache_position[-1] + 1
             if not self.has_relative_attention_bias:
                 position_bias = torch.zeros(
                     (1, self.n_heads, seq_length, key_length), device=scores.device, dtype=scores.dtype
                 )
+                d = tracer.get_dict([1, self.n_heads, seq_length, key_length])
+                d["dtype"] = scores.dtype
+                tracer.add_op("torch.zeros", d, {"output": position_bias})
                 if self.gradient_checkpointing and self.training:
                     position_bias.requires_grad = True
             else:
                 position_bias = self.compute_bias(
-                    real_seq_length, key_length, device=scores.device, cache_position=cache_position
+                    tracer, real_seq_length, key_length, device=scores.device, cache_position=cache_position
                 )
                 position_bias = position_bias[:, :, -seq_length:, :]
 
             if mask is not None:
                 causal_mask = mask[:, :, :, : key_states.shape[-2]]
-                position_bias = position_bias + causal_mask
+                tracer.add_op("torch.Tensor.size", {"input": key_states}, {"output": key_states.shape})
+                position_bias_ = position_bias + causal_mask
+                tracer.add_op("torch.add", {"input": position_bias, "other": causal_mask}, {"output": position_bias_})
+                position_bias = position_bias_
+
+        tracer.summary()
+        DD
 
         if self.pruned_heads:
             mask = torch.ones(position_bias.shape[1])
