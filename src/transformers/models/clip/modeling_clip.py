@@ -511,10 +511,10 @@ class CLIPEncoderLayer(nn.Module):
         hidden_states = hidden_states_
 
         residual = hidden_states
-        hidden_states = self.layer_norm2(hidden_states)
-        tracer.add_op("torch.nn.LayerNorm", {"input": hidden_states}, {"output": hidden_states},
+        hidden_states_ = self.layer_norm2(hidden_states)
+        tracer.add_op("torch.nn.LayerNorm", {"input": hidden_states}, {"output": hidden_states_},
                       {"normalized_shape": self.embed_dim, "eps": self.eps})
-        hidden_states = self.mlp(tracer, hidden_states)
+        hidden_states = self.mlp(tracer, hidden_states_)
         hidden_states_ = residual + hidden_states
         tracer.add_op("torch.add", {"input": residual, "other": hidden_states}, {"output": hidden_states_})
         hidden_states = hidden_states_
