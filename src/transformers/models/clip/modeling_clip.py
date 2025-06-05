@@ -659,9 +659,7 @@ class CLIPEncoder(nn.Module):
         hidden_states = inputs_embeds
         for idx, encoder_layer in enumerate(self.layers):
             if output_hidden_states:
-                encoder_states_ = encoder_states + (hidden_states,)
-                tracer.add_op("torch.add", {"input": encoder_states, "other": hidden_states}, {"output": encoder_states_})
-                encoder_states = encoder_states_
+                encoder_states = encoder_states + (hidden_states,)
             if self.gradient_checkpointing and self.training:
                 tracer.vomit()
                 layer_outputs = self._gradient_checkpointing_func(
@@ -683,16 +681,10 @@ class CLIPEncoder(nn.Module):
             hidden_states = layer_outputs[0]
 
             if output_attentions:
-                all_attentions_ = all_attentions + (layer_outputs[1],)
-                tracer.add_op("torch.add", {"input": all_attentions, "other": layer_outputs[1]},
-                              {"output": all_attentions_})
-                all_attentions = all_attentions_
+                all_attentions = all_attentions + (layer_outputs[1],)
 
         if output_hidden_states:
-            encoder_states_ = encoder_states + (hidden_states,)
-            tracer.add_op("torch.add", {"input": encoder_states, "other": hidden_states},
-                          {"output": encoder_states_})
-            encoder_states = encoder_states_
+            encoder_states = encoder_states + (hidden_states,)
 
         return BaseModelOutput(
             last_hidden_state=hidden_states,
