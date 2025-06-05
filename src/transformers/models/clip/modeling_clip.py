@@ -792,6 +792,7 @@ class CLIPTextTransformer(nn.Module):
                 x,
                 z,
             ]
+            tracer.add_op("torch.Tensor.selection", {"input": last_hidden_state, "0": x, "1": z}, {"output": pooled_output})
         else:
             tracer.vomit()
             # The config gets updated `eos_token_id` from PR #24773 (so the use of exta new tokens is possible)
