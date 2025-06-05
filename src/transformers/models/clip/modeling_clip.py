@@ -273,6 +273,8 @@ class CLIPTextEmbeddings(nn.Module):
 
         if position_ids is None:
             position_ids = self.position_ids[:, :seq_length]
+            tracer.add_op("torch.Tensor.selection", {"input": self.position_ids, "0": ":", "1": f":{seq_length}"},
+                          {"output": position_ids})
 
         if inputs_embeds is None:
             inputs_embeds = self.token_embedding(input_ids)
