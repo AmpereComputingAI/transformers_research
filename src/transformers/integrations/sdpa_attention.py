@@ -92,7 +92,7 @@ def sdpa_attention_forward(
 
     attn_output_ = attn_output.transpose(1, 2).contiguous()
     tracer.add_op("torch.Tensor.transpose",
-                  {"dim0": 1, "dim1": 2},
+                  {"input": attn_output, "dim0": 1, "dim1": 2},
                   {"output": attn_output_})
     attn_output = attn_output_
 
