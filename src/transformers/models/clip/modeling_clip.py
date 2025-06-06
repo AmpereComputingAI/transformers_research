@@ -730,9 +730,10 @@ class CLIPTextTransformer(nn.Module):
             raise ValueError("You have to specify input_ids")
 
         input_shape = input_ids.size()
-        tracer.add_op("torch.Tensor.size", {}, {"output": input_shape})
-        input_ids = input_ids.view(-1, input_shape[-1])
-        tracer.add_op("torch.Tensor.view", {"0": -1, "1": input_shape[-1]}, {"output": input_ids})
+        tracer.add_op("torch.Tensor.size", {"input": input_ids}, {"output": input_shape})
+        input_ids_ = input_ids.view(-1, input_shape[-1])
+        tracer.add_op("torch.Tensor.view", {"input": input_ids, "0": -1, "1": input_shape[-1]}, {"output": input_ids_})
+        input_ids = input_ids_
 
         with tracer.section(self.embeddings):
             hidden_states = self.embeddings(tracer, input_ids=input_ids, position_ids=position_ids)
