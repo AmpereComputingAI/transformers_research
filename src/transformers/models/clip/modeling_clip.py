@@ -371,10 +371,9 @@ class CLIPAttention(nn.Module):
         tracer.add_op("torch.Tensor.view",
                       d,
                       {"output": queries_})
-        queries = queries_
-        queries = queries.transpose(1, 2)
+        queries = queries_.transpose(1, 2)
         tracer.add_op("torch.Tensor.transpose",
-                      {"dim0": 1, "dim1": 2},
+                      {"input": queries_, "dim0": 1, "dim1": 2},
                       {"output": queries})
 
         keys_ = keys.view(batch_size, seq_length, -1, self.head_dim)
