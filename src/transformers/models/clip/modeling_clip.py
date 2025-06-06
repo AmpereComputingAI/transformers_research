@@ -351,7 +351,7 @@ class CLIPAttention(nn.Module):
         """Input shape: Batch x Time x Channel"""
 
         batch_size, seq_length, embed_dim = hidden_states.shape
-        tracer.add_op("torch.Tensor.size", {}, {f"{i}": val for i, val in enumerate([batch_size, seq_length, embed_dim])})
+        tracer.add_op("torch.Tensor.size", {hidden_states}, {hidden_states.shape})
 
         queries = self.q_proj(hidden_states)
         tracer.add_op("torch.nn.Linear", {"input": hidden_states}, {"output": queries},
@@ -365,31 +365,38 @@ class CLIPAttention(nn.Module):
         tracer.add_op("torch.nn.Linear", {"input": hidden_states}, {"output": values},
                       {"in_features": self.embed_dim, "out_features": self.embed_dim})
 
-        queries = queries.view(batch_size, seq_length, -1, self.head_dim)
+        queries_ = queries.view(batch_size, seq_length, -1, self.head_dim)
+        d = tracer.get_dict([batch_size, seq_length, -1, self.head_dim])
+        d["input"] = queries
         tracer.add_op("torch.Tensor.view",
-                      {f"{i}": val for i, val in enumerate([batch_size, seq_length, -1, self.head_dim])},
-                      {"output": queries})
+                      d,
+                      {"output": queries_})
+        queries = queries_
         queries = queries.transpose(1, 2)
         tracer.add_op("torch.Tensor.transpose",
                       {"dim0": 1, "dim1": 2},
                       {"output": queries})
 
-        keys = keys.view(batch_size, seq_length, -1, self.head_dim)
+        keys_ = keys.view(batch_size, seq_length, -1, self.head_dim)
+        d = tracer.get_dict([batch_size, seq_length, -1, self.head_dim])
+        d["input"] = keys
         tracer.add_op("torch.Tensor.view",
-                      {f"{i}": val for i, val in enumerate([batch_size, seq_length, -1, self.head_dim])},
-                      {"output": keys})
-        keys = keys.transpose(1, 2)
+                      d,
+                      {"output": keys_})
+        keys = keys_.transpose(1, 2)
         tracer.add_op("torch.Tensor.transpose",
-                      {"dim0": 1, "dim1": 2},
+                      {"input": keys_, "dim0": 1, "dim1": 2},
                       {"output": keys})
 
-        values = values.view(batch_size, seq_length, -1, self.head_dim)
+        values_ = values.view(batch_size, seq_length, -1, self.head_dim)
+        d = tracer.get_dict([batch_size, seq_length, -1, self.head_dim])
+        d["input"] = values
         tracer.add_op("torch.Tensor.view",
-                      {f"{i}": val for i, val in enumerate([batch_size, seq_length, -1, self.head_dim])},
-                      {"output": values})
-        values = values.transpose(1, 2)
+                      d,
+                      {"output": values_})
+        values = values_.transpose(1, 2)
         tracer.add_op("torch.Tensor.transpose",
-                      {"dim0": 1, "dim1": 2},
+                      {"input": values_, "dim0": 1, "dim1": 2},
                       {"output": values})
 
         # CLIP text model uses both `causal_attention_mask` and `attention_mask`
