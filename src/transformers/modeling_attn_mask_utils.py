@@ -168,18 +168,19 @@ class AttentionMaskConverter:
         tracer.add_op("torch.full", {"size": (tgt_len, tgt_len), "fill_value": torch.finfo(dtype).min},
                       {"output": mask})
         mask_cond = torch.arange(mask.size(-1), device=device)
-        tracer.add_op("torch.Tensor.size", {}, {"0": mask.size(-1)})
+        tracer.add_op("torch.Tensor.size", {"input": mask}, {"0": mask.size(-1)})
         tracer.add_op("torch.arange", {"end": mask.size(-1)}, {"output": mask_cond})
 
         x = mask_cond + 1
         tracer.add_op("torch.add", {"input": mask_cond, "other": 1}, {"output": x})
         y = x.view(mask.size(-1), 1)
-        tracer.add_op("torch.Tensor.size", {}, {"0": mask.size(-1)})
-        tracer.add_op("torch.Tensor.view", {"0": mask.size(-1), "1": 1}, {"output": y})
+        tracer.add_op("torch.Tensor.size", {"input": mask}, {"0": mask.size(-1)})
+        tracer.add_op("torch.Tensor.view", {"input": x, "0": mask.size(-1), "1": 1}, {"output": y})
         z = mask_cond < y
-        mask.masked_fill_(z, 0)
+        mask_ = mask.masked_fill(z, 0)
         tracer.add_op("torch.lt", {"input": mask_cond, "other": y}, {"output": z})
-        tracer.add_op("torch.Tensor.masked_fill_", {"mask": z, "value": 0}, {"output": mask})
+        tracer.add_op("torch.Tensor.masked_fill", {"input": mask, "mask": z, "value": 0}, {"output": mask_})
+        mask = mask_
 
         mask_ = mask.to(dtype)
         tracer.add_op("torch.Tensor.to", {"input": mask, "target": dtype}, {"output": mask_})
@@ -205,12 +206,16 @@ class AttentionMaskConverter:
             # See https://github.com/pytorch/pytorch/issues/127571
             if is_torchdynamo_compiling():
                 mask = mask.clone()
-            mask.masked_fill_(context_mask, torch.finfo(dtype).min)
-            tracer.add_op("torch.Tensor.masked_fill_", {"mask": context_mask, "value": torch.finfo(dtype).min}, {"output": mask})
+            mask_ = mask.masked_fill(context_mask, torch.finfo(dtype).min)
+            tracer.add_op("torch.Tensor.masked_fill_",
+                          {"input": mask, "mask": context_mask, "value": torch.finfo(dtype).min}, {"output": mask_})
+            mask = mask_
 
         x = mask[None, None, :, :].expand(bsz, 1, tgt_len, tgt_len + past_key_values_length)
+        d = tracer.get_dict([bsz, 1, tgt_len, tgt_len + past_key_values_length])
+        d["input"] = mask
         tracer.add_op("torch.Tensor.expand",
-                      {f"{i}": val for i, val in enumerate([bsz, 1, tgt_len, tgt_len + past_key_values_length])},
+                      d,
                       {"output": x})
         return x
 
@@ -220,12 +225,14 @@ class AttentionMaskConverter:
         Expands attention_mask from `[bsz, seq_len]` to `[bsz, 1, tgt_seq_len, src_seq_len]`.
         """
         bsz, src_len = mask.size()
-        tracer.add_op("torch.Tensor.size", {}, {"0": bsz, "1": src_len})
+        tracer.add_op("torch.Tensor.size", {"input": mask}, {"output": mask.size()})
         tgt_len = tgt_len if tgt_len is not None else src_len
 
         y = mask[:, None, None, :].expand(bsz, 1, tgt_len, src_len)
+        d = tracer.get_dict([bsz, 1, tgt_len, src_len])
+        d["input"] = mask
         tracer.add_op("torch.Tensor.expand",
-                      {f"{i}": val for i, val in enumerate([bsz, 1, tgt_len, src_len])},
+                      d,
                       {"output": y})
         expanded_mask = y.to(dtype)
         tracer.add_op("torch.Tensor.to", {"input": y, "target": dtype}, {"output": expanded_mask})
@@ -240,7 +247,7 @@ class AttentionMaskConverter:
 
         x = inverted_mask.masked_fill(y, torch.finfo(dtype).min)
         tracer.add_op("torch.Tensor.masked_fill_",
-                      {"mask": y, "value": torch.finfo(dtype).min},
+                      {"input": inverted_mask, "mask": y, "value": torch.finfo(dtype).min},
                       {"output": x})
         return x
 
