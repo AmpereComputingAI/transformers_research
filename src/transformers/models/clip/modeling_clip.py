@@ -263,6 +263,7 @@ class CLIPTextEmbeddings(nn.Module):
             seq_length = inputs_embeds.shape[-2]
             tracer.add_op("torch.Tensor.size", {"input": inputs_embeds, "0": -2}, {"output": seq_length})
         max_position_embedding = self.position_embedding.weight.shape[0]
+        tracer.add_preloaded_tensor(self.position_embedding.weight)
         tracer.add_op("torch.Tensor.size", {"input": self.position_embedding.weight, "0": 0}, {"output": max_position_embedding})
 
         if seq_length > max_position_embedding:
