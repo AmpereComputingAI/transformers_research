@@ -351,7 +351,7 @@ class CLIPAttention(nn.Module):
         """Input shape: Batch x Time x Channel"""
 
         batch_size, seq_length, embed_dim = hidden_states.shape
-        tracer.add_op("torch.Tensor.size", {hidden_states}, {hidden_states.shape})
+        tracer.add_op("torch.Tensor.size", {"input": hidden_states}, {"output": hidden_states.shape})
 
         queries = self.q_proj(hidden_states)
         tracer.add_op("torch.nn.Linear", {"input": hidden_states}, {"output": queries},
