@@ -58,9 +58,15 @@ def sdpa_attention_forward(
 
     # SDPA with memory-efficient backend is bugged with non-contiguous inputs and custom attn_mask for some torch versions
     # Reference: https://github.com/pytorch/pytorch/issues/112577.
-    query = query.contiguous()
-    key = key.contiguous()
-    value = value.contiguous()
+    query_ = query.contiguous()
+    tracer.add_op("torch.Tensor.contiguous", {"input": query}, {"output": query_})
+    query = query_
+    key_ = key.contiguous()
+    tracer.add_op("torch.Tensor.contiguous", {"input": key}, {"output": key_})
+    key = key_
+    value_ = value.contiguous()
+    tracer.add_op("torch.Tensor.contiguous", {"input": value}, {"output": value_})
+    value = value_
 
     # We dispatch to SDPA's Flash Attention or Efficient kernels via this `is_causal` if statement instead of an inline conditional assignment
     # in SDPA to support both torch.compile's dynamic shapes and full graph options. An inline conditional prevents dynamic shapes from compiling.
