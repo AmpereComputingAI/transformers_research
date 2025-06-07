@@ -516,6 +516,7 @@ class T5Attention(nn.Module):
             tracer.add_op("torch.arange", {"end": query_length, "dtype": torch.long}, {"output": context_position})
         else:
             context_position = cache_position[:, None].to(device)
+            tracer.add_op("torch.Tensor.selection", {"input": cache_position, "0": ":", "1": None}, {"output": context_position})
         memory_position = torch.arange(key_length, dtype=torch.long, device=device)[None, :]
         tracer.add_op("torch.arange", {"end": key_length, "dtype": torch.long}, {"output": memory_position})
         relative_position = memory_position - context_position  # shape (query_length, key_length)
