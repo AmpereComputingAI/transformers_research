@@ -890,7 +890,6 @@ class T5Block(nn.Module):
             tracer.add_op("torch.add", {"input": x, "other": attention_outputs}, {"output": outputs})
         else:
             outputs_ = outputs + attention_outputs
-            tracer.add_op("torch.add", {"input": outputs, "other": attention_outputs}, {"output": outputs_})
             outputs = outputs_
 
         return outputs  # hidden-states, past_key_value, (self-attention position bias), (self-attention weights), (cross-attention position bias), (cross-attention weights)
