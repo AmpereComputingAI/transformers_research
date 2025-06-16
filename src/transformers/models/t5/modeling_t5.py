@@ -740,7 +740,7 @@ class T5LayerSelfAttention(nn.Module):
             cache_position=cache_position,
         )
         hidden_states_ = hidden_states + self.dropout(attention_output[0])
-        tracer.add_op("torch.add", {"input": hidden_states, "other": attention_output}, {"output": hidden_states_})
+        tracer.add_op("torch.add", {"input": hidden_states, "other": attention_output[0]}, {"output": hidden_states_})
         outputs = (hidden_states_,) + attention_output[1:]  # add attentions if we output them
         return outputs
 
