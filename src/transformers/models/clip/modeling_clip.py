@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """PyTorch CLIP model."""
-
+import hashlib
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Tuple, Union
 
@@ -233,6 +233,13 @@ class CLIPVisionEmbeddings(nn.Module):
         return embeddings
 
 
+def hash_tensor(tensor):
+    tensor_data_ptr = tensor.storage().data_ptr()
+    tensor = tensor.clone().detach()
+    tensor_bytes = tensor.to(dtype=torch.float32).cpu().contiguous().numpy().tobytes()
+    return str(tensor_data_ptr) + "_" + hashlib.sha256(tensor_bytes).hexdigest()
+
+
 class CLIPTextEmbeddings(nn.Module):
     def __init__(self, config: CLIPTextConfig):
         super().__init__()
@@ -282,6 +289,9 @@ class CLIPTextEmbeddings(nn.Module):
             inputs_embeds = self.token_embedding(input_ids)
             tracer.add_op("torch.nn.Embedding", {"input": input_ids}, {"output": inputs_embeds},
                           {"num_embeddings": self.vocab_size, "embedding_dim": self.embed_dim})
+            hash_0 = hash_tensor(inputs_embeds)
+        else:
+            hash_0 = hash_tensor(inputs_embeds)
 
         position_embeddings = self.position_embedding(position_ids)
         tracer.add_op("torch.nn.Embedding", {"input": position_ids}, {"output": position_embeddings},
@@ -289,6 +299,7 @@ class CLIPTextEmbeddings(nn.Module):
 
 
         embeddings = inputs_embeds + position_embeddings
+        assert hash_0 == hash_tensor(inputs_embeds)
         tracer.add_op("torch.add", {"input": inputs_embeds, "other": position_embeddings}, {"output": embeddings})
 
         return embeddings
